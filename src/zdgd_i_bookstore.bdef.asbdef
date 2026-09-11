@@ -5,7 +5,7 @@ define behavior for ZDGD_I_Bookstore alias Bookstore
 lock master
 authorization master ( instance )
 {
-  create;
+  create ( authorization : global );
   update;
   delete;
   field ( readonly, numbering : managed ) BookstoreID;

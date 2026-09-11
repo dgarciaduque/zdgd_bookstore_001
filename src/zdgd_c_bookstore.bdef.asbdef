@@ -1,0 +1,19 @@
+projection;
+strict ( 2 );
+
+define behavior for ZDGD_C_BOOKSTORE alias Bookstore
+{
+  use create;
+  use update;
+  use delete;
+
+  use association _Books { create; }
+}
+
+define behavior for ZDGD_C_BOOK alias Book
+{
+  use update;
+  use delete;
+
+  use association _Bookstore;
+}
