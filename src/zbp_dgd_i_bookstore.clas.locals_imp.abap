@@ -11,7 +11,6 @@ ENDCLASS.
 
 CLASS lhc_bookstore IMPLEMENTATION.
   METHOD get_instance_authorizations.
-  "Test
     result = VALUE #( FOR key IN keys
                       ( %tky    = key-%tky
                         %update = if_abap_behv=>auth-allowed
