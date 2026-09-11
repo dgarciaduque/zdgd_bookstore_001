@@ -1,0 +1,24 @@
+managed implementation in class zbp_dgd_i_bookstore unique;
+strict ( 2 );
+
+define behavior for ZDGD_I_Bookstore alias Bookstore
+lock master
+authorization master ( instance )
+{
+  create;
+  update;
+  delete;
+  field ( readonly, numbering : managed ) BookstoreID;
+  association _Books { create; }
+}
+
+define behavior for ZDGD_I_Book alias Book
+lock dependent by _Bookstore
+authorization dependent by _Bookstore
+{
+  update;
+  delete;
+  field ( readonly, numbering : managed ) BookID;
+  field ( readonly ) BookstoreID;
+  association _Bookstore;
+}

@@ -1,0 +1,6 @@
+CLASS zbp_dgd_i_bookstore DEFINITION PUBLIC ABSTRACT FINAL FOR BEHAVIOR OF zdgd_i_bookstore.
+ENDCLASS.
+
+CLASS zbp_dgd_i_bookstore IMPLEMENTATION.
+ENDCLASS.
+
