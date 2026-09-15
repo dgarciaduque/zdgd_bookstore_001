@@ -4,11 +4,11 @@
 
 @ClientHandling.type: #CLIENT_DEPENDENT
 
-@EndUserText.label: 'Bookstore'
-define root table entity ZDGD_I_Bookstore
+@EndUserText.label: 'Draft: Bookstore'
+
+define table entity ZDGD_I_Bookstore_D
 
 {
-      @Semantics.uuid: true
   key BookstoreID    : sysuuid_x16;
 
       BookstoreName : abap.char(50);
@@ -30,5 +30,6 @@ define root table entity ZDGD_I_Bookstore
       @Semantics.systemDateTime.lastChangedAt: true
       LastChangedAt      : abp_lastchange_tstmpl;
 
-      _Books : composition of many ZDGD_I_Book;
+      include SYCH_BDL_DRAFT_ADMIN_INC.* signature only;
+
 }

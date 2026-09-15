@@ -23,6 +23,26 @@ CLASS zdgd_populate_bookstore IMPLEMENTATION.
     DATA bookstore_create TYPE TABLE FOR CREATE zdgd_i_bookstore.
     DATA book_link        TYPE TABLE FOR CREATE zdgd_i_bookstore\_books.
 
+    DATA(cities) = VALUE string_table(
+      ( `New York` ) ( `London` ) ( `Paris` ) ( `Tokyo` ) ( `Berlin` )
+      ( `Rome` ) ( `Madrid` ) ( `Amsterdam` ) ( `Vienna` ) ( `Prague` )
+      ( `Dublin` ) ( `Edinburgh` ) ( `Barcelona` ) ( `Lisbon` ) ( `Copenhagen` )
+      ( `Stockholm` ) ( `Sydney` ) ( `Toronto` ) ( `San Francisco` ) ( `Chicago` ) ).
+
+    DATA(bookstore_names) = VALUE string_table(
+      ( `The Reading Nook` ) ( `Paper Trail Books` ) ( `Chapter One` ) ( `Inkwell & Co.` ) ( `The Book Cellar` )
+      ( `Turning Pages` ) ( `The Literary Attic` ) ( `Bound & Lettered` ) ( `The Dusty Shelf` ) ( `Wordsmith Books` )
+      ( `The Hidden Library` ) ( `Ink & Paper` ) ( `The Bookworm's Den` ) ( `Storyline Books` ) ( `The Final Chapter` )
+      ( `Prose & Cons` ) ( `The Book Nook` ) ( `Between the Lines` ) ( `A Novel Idea` ) ( `Quill & Parchment` ) ).
+
+    DATA(book_titles) = VALUE string_table(
+      ( `Pride and Prejudice` ) ( `1984` ) ( `To Kill a Mockingbird` ) ( `The Great Gatsby` ) ( `Moby-Dick` )
+      ( `War and Peace` ) ( `The Catcher in the Rye` ) ( `Crime and Punishment` ) ( `One Hundred Years of Solitude` ) ( `The Lord of the Rings` ) ).
+
+    DATA(book_authors) = VALUE string_table(
+      ( `Jane Austen` ) ( `George Orwell` ) ( `Harper Lee` ) ( `F. Scott Fitzgerald` ) ( `Herman Melville` )
+      ( `Leo Tolstoy` ) ( `J.D. Salinger` ) ( `Fyodor Dostoevsky` ) ( `Gabriel Garcia Marquez` ) ( `J.R.R. Tolkien` ) ).
+
     SELECT bookstoreid FROM zdgd_i_bookstore INTO TABLE @DATA(existing_ids).
 
     IF existing_ids IS NOT INITIAL.
@@ -46,8 +66,8 @@ CLASS zdgd_populate_bookstore IMPLEMENTATION.
       DATA(cid) = |BS{ sy-index WIDTH = 2 ALIGN = RIGHT PAD = '0' }|.
 
       APPEND VALUE #( %cid          = cid
-                      bookstorename = |Bookstore { sy-index WIDTH = 2 ALIGN = RIGHT PAD = '0' }|
-                      city          = |City { sy-index WIDTH = 2 ALIGN = RIGHT PAD = '0' }| )
+                      bookstorename = bookstore_names[ sy-index ]
+                      city          = cities[ sy-index ] )
              TO bookstore_create.
 
       APPEND INITIAL LINE TO book_link ASSIGNING FIELD-SYMBOL(<book_link_row>).
@@ -55,8 +75,8 @@ CLASS zdgd_populate_bookstore IMPLEMENTATION.
 
       DO book_count TIMES.
         APPEND VALUE #( %cid     = |{ cid }BK{ sy-index WIDTH = 2 ALIGN = RIGHT PAD = '0' }|
-                        bookname = |Book { sy-index WIDTH = 2 ALIGN = RIGHT PAD = '0' }|
-                        author   = |Author { sy-index WIDTH = 2 ALIGN = RIGHT PAD = '0' }| )
+                        bookname = book_titles[ sy-index ]
+                        author   = book_authors[ sy-index ] )
                TO <book_link_row>-%target.
       ENDDO.
     ENDDO.

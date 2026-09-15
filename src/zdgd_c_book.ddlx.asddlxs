@@ -1,0 +1,13 @@
+@Metadata.layer: #CORE
+annotate entity ZDGD_C_Book
+  with
+{
+  @UI.lineItem: [ { position: 10 } ]
+  BookID;
+
+  @UI.lineItem: [ { position: 20 } ]
+  BookName;
+
+  @UI.lineItem: [ { position: 30 } ]
+  Author;
+}

@@ -1,5 +1,6 @@
 projection;
 strict ( 2 );
+use draft;
 
 define behavior for ZDGD_C_BOOKSTORE alias Bookstore
 {
@@ -7,7 +8,13 @@ define behavior for ZDGD_C_BOOKSTORE alias Bookstore
   use update;
   use delete;
 
-  use association _Books { create; }
+  use action Edit;
+  use action Activate;
+  use action Discard;
+  use action Prepare;
+  use action Resume;
+
+  use association _Books { create; with draft; }
 }
 
 define behavior for ZDGD_C_BOOK alias Book
@@ -15,5 +22,5 @@ define behavior for ZDGD_C_BOOK alias Book
   use update;
   use delete;
 
-  use association _Bookstore;
+  use association _Bookstore { with draft; }
 }

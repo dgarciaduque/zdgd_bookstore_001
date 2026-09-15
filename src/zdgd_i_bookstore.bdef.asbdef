@@ -1,24 +1,37 @@
 managed implementation in class zbp_dgd_i_bookstore unique;
 strict ( 2 );
+with draft;
 
 define behavior for ZDGD_I_Bookstore alias Bookstore
+draft table zdgd_i_bookstore_d
 lock master
+total etag LastChangedAt
+etag master LocalLastChangedAt
 authorization master ( instance )
 {
   create ( authorization : global );
   update;
   delete;
+  draft action Edit;
+  draft action Discard;
+  draft action Activate optimized;
+  draft action Resume;
+  draft determine action Prepare;
+
   field ( readonly, numbering : managed ) BookstoreID;
-  association _Books { create; }
+
+  association _Books { create; with draft; }
 }
 
 define behavior for ZDGD_I_Book alias Book
+draft table zdgd_i_book_d
 lock dependent by _Bookstore
+etag dependent by _Bookstore
 authorization dependent by _Bookstore
 {
   update;
   delete;
   field ( readonly, numbering : managed ) BookID;
   field ( readonly ) BookstoreID;
-  association _Bookstore;
+  association _Bookstore { with draft; }
 }

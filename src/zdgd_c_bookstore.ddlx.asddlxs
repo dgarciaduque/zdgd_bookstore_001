@@ -1,0 +1,27 @@
+@Metadata.layer: #CORE
+
+@UI.headerInfo: { typeName: 'Bookstore', typeNamePlural: 'Bookstores', title: { type: #STANDARD, value: 'BookstoreName' } }
+
+annotate entity ZDGD_C_Bookstore
+    with 
+{
+    @UI.facet: [
+        { id: 'Bookstore', purpose: #STANDARD, type: #IDENTIFICATION_REFERENCE, label: 'Bookstore', position: 10 },
+        { id: 'Books', purpose: #STANDARD, type: #LINEITEM_REFERENCE, label: 'Books', position: 20, targetElement: '_Books' }
+    ]
+
+    @UI.selectionField: [ { position: 10 } ]
+    @UI.lineItem: [ { position: 10 } ]
+    @UI.identification: [ { position: 10 } ]
+    BookstoreID;
+
+    @UI.selectionField: [ { position: 20 } ]
+    @UI.lineItem: [ { position: 20 } ]
+    @UI.identification: [ { position: 20 } ]
+    BookstoreName;
+
+    @UI.selectionField: [ { position: 30 } ]
+    @UI.lineItem: [ { position: 30 } ]
+    @UI.identification: [ { position: 30 } ]
+    City;
+}

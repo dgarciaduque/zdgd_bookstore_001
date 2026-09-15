@@ -1,0 +1,6 @@
+@EndUserText.label: 'Service Definition: Bookstore'
+@ObjectModel.leadingEntity.name: 'ZDGD_C_Bookstore'
+define service ZDGD_BOOKSTORE {
+  expose ZDGD_C_Bookstore as Bookstore;
+  expose ZDGD_C_Book      as Book;
+}
