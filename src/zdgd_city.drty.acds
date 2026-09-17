@@ -1,0 +1,4 @@
+@EndUserText.heading: 'City'
+@EndUserText.label: 'City'
+@EndUserText.quickInfo: 'City'
+define type ZDGD_City: abap.char(50)

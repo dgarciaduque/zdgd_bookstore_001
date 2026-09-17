@@ -11,8 +11,8 @@ define table entity ZDGD_I_Bookstore_D
 {
   key BookstoreID    : sysuuid_x16;
 
-      BookstoreName : abap.char(50);
-      City          : abap.char(50);
+      BookstoreName : ZDGD_BookstoreName;
+      City          : ZDGD_City;
 
       //      include ZDGD_RAPAdminFields.* signature only; //Aspects not supported yet in Service Binding (Release 2608)
       @Semantics.user.createdBy: true

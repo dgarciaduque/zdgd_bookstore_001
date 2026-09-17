@@ -1,0 +1,4 @@
+@EndUserText.heading: 'Author'
+@EndUserText.label: 'Author'
+@EndUserText.quickInfo: 'Author'
+define type ZDGD_BookAuthor : abap.char(50)

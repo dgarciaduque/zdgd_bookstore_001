@@ -1,0 +1,5 @@
+@EndUserText.label: 'Bookstore Name'
+@EndUserText.quickInfo: 'Name'
+@EndUserText.heading: 'Bookstore Name'
+@AbapCatalog.typeSpec.changeDocumentRelevant: true
+define type ZDGD_BookstoreName : abap.char(50)
