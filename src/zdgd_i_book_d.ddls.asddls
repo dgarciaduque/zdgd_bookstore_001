@@ -14,6 +14,9 @@ define table entity ZDGD_I_Book_D
       BookstoreID    : sysuuid_x16;
       BookName       : ZDGD_BookName;
       Author         : ZDGD_BookAuthor;
-//      include ZDGD_RAPAdminFields     .* signature only;
+      UnitsInStock : abap.int1;
+      Language     : spras;
+
+      //      include ZDGD_RAPAdminFields     .* signature only;
       include SYCH_BDL_DRAFT_ADMIN_INC.* signature only;
 }

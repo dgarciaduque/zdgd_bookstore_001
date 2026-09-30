@@ -11,10 +11,10 @@ define root view entity ZDGD_C_Bookstore
   @EndUserText.label: 'Bookstore ID'
   key BookstoreID,
 
-  @EndUserText.label: 'Bookstore Name'
+//  @EndUserText.label: 'Bookstore Name'
   BookstoreName,
 
-  @EndUserText.label: 'City'
+//  @EndUserText.label: 'City'
   City,
 
       /* Associations */

@@ -12,6 +12,7 @@ authorization master ( instance )
   create ( authorization : global );
   update;
   delete;
+
   draft action Edit;
   draft action Discard;
   draft action Activate optimized;

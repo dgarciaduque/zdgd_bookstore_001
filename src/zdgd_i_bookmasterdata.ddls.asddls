@@ -4,23 +4,21 @@
 
 @ClientHandling.type: #CLIENT_DEPENDENT
 
-@EndUserText.label: 'Book'
+@EndUserText.label: 'Book Master Data'
 
-define table entity ZDGD_I_Book
+@ObjectModel.usageType: { serviceQuality: #X, sizeCategory: #S, dataClass: #MASTER }
+
+define root table entity ZDGD_I_BookMasterData
 
 {
       @Semantics.uuid: true
   key BookID       : sysuuid_x16;
 
-      @Semantics.uuid: true
-      BookstoreID  : sysuuid_x16;
-
       BookName     : ZDGD_BookName;
       Author       : ZDGD_BookAuthor;
-      UnitsInStock : abap.int1;
 
       @Semantics.language: true
       Language     : spras;
 
-      _Bookstore   : association to parent ZDGD_I_Bookstore on $projection.bookstoreid = _Bookstore.bookstoreid;
+      include ZDGD_RAPAdminFields.* signature only;
 }
