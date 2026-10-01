@@ -17,7 +17,9 @@ authorization master ( instance )
   draft action Discard;
   draft action Activate optimized;
   draft action Resume;
-  draft determine action Prepare;
+  draft determine action Prepare { validation avoid_duplicates; }
+
+  validation avoid_duplicates on save { create; update; field BookName; field Author; field Language; }
 
   field ( readonly, numbering : managed ) BookID;
 }

@@ -1,0 +1,16 @@
+projection;
+strict ( 2 );
+use draft;
+
+define behavior for ZDGD_C_BookMasterData alias Book
+{
+  use create;
+  use update;
+  use delete;
+
+  use action Edit;
+  use action Discard;
+  use action Activate;
+  use action Resume;
+  use action Prepare;
+}

@@ -1,6 +1,7 @@
 @EndUserText.label: 'Service Definition: Bookstore'
 @ObjectModel.leadingEntity.name: 'ZDGD_C_Bookstore'
 define service ZDGD_BOOKSTORE {
-  expose ZDGD_C_Bookstore as Bookstore;
-  expose ZDGD_C_Book      as Book;
+  expose ZDGD_C_Bookstore      as Bookstores;
+  expose ZDGD_C_Book           as Books;
+  expose ZDGD_C_BookMasterData as BookMasterData;
 }

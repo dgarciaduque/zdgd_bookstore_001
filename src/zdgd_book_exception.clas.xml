@@ -3,16 +3,14 @@
  <asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0">
   <asx:values>
    <VSEOCLASS>
-    <CLSNAME>ZBP_DGD_I_BOOKMASTERDATA</CLSNAME>
+    <CLSNAME>ZDGD_BOOK_EXCEPTION</CLSNAME>
     <LANGU>E</LANGU>
-    <DESCRIPT>Behavior Implementation for ZDGD_I_BOOKMASTERDATA</DESCRIPT>
-    <CATEGORY>06</CATEGORY>
+    <DESCRIPT>Book: Exception class</DESCRIPT>
+    <CATEGORY>40</CATEGORY>
     <STATE>1</STATE>
     <CLSCCINCL>X</CLSCCINCL>
     <FIXPT>X</FIXPT>
     <UNICODE>X</UNICODE>
-    <CLSDEFINT>ZDGD_I_BOOKMASTERDATA</CLSDEFINT>
-    <WITH_UNIT_TESTS>X</WITH_UNIT_TESTS>
    </VSEOCLASS>
   </asx:values>
  </asx:abap>

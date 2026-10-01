@@ -1,6 +1,6 @@
 @AccessControl.authorizationCheck: #NOT_REQUIRED
 
-@EndUserText.label: 'Books'
+@EndUserText.label: 'Bookstore Books'
 
 @Metadata.allowExtensions: true
 
@@ -8,13 +8,21 @@ define view entity ZDGD_C_Book
   as projection on ZDGD_I_Book
 
 {
-      @EndUserText.label: 'Book ID'
+  key BookstoreID,
   key BookID,
 
-      @EndUserText.label: 'Bookstore ID'
-      BookstoreID,
-
+      @Consumption.valueHelpDefinition: [ { entity: { name: 'ZDGD_I_BookMasterData', element: 'BookName' },
+                                            additionalBinding: [ { element: 'BookID',
+                                                                   localElement: 'BookID',
+                                                                   usage: #RESULT },
+                                                                 { element: 'Author',
+                                                                   localElement: 'Author',
+                                                                   usage: #FILTER_AND_RESULT },
+                                                                 { element: 'Language',
+                                                                   localElement: 'Language',
+                                                                   usage: #FILTER_AND_RESULT } ] } ]
       BookName,
+
       Author,
 
       @EndUserText.label: 'Units in Stock'

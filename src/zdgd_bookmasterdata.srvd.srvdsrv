@@ -1,0 +1,4 @@
+@EndUserText.label: 'Book Master Data'
+define service ZDGD_BOOKMASTERDATA {
+  expose ZDGD_C_BookMasterData as Books;
+}
