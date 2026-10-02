@@ -19,7 +19,7 @@ authorization master ( instance )
   draft action Resume;
   draft determine action Prepare { validation avoid_duplicates; }
 
-  validation avoid_duplicates on save { create; update; field BookName; field Author; field Language; }
+  validation avoid_duplicates on save { field BookName; field Author; field Language; }
 
   field ( readonly, numbering : managed ) BookID;
 }

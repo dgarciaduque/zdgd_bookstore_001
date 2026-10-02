@@ -5,6 +5,9 @@
 @ClientHandling.type: #CLIENT_DEPENDENT
 
 @EndUserText.label: 'Bookstore'
+
+@ObjectModel.semanticKey: [ 'BookstoreName', 'City' ]
+@ObjectModel.usageType: { serviceQuality: #X, sizeCategory: #S, dataClass: #TRANSACTIONAL }
 define root table entity ZDGD_I_Bookstore
 
 {
@@ -14,7 +17,7 @@ define root table entity ZDGD_I_Bookstore
       BookstoreName : ZDGD_BookstoreName;
       City          : ZDGD_City;
 
-//            include ZDGD_RAPAdminFields.* signature only; //Aspects not supported yet in Service Binding (Release 2608)
+      //            include ZDGD_RAPAdminFields.* signature only; //Aspects not supported yet in Service Binding (Release 2608)
       @Semantics.user.createdBy: true
       LocalCreatedBy     : abp_creation_user;
 

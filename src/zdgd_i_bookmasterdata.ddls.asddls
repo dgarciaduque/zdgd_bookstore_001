@@ -6,6 +6,7 @@
 
 @EndUserText.label: 'Book Master Data'
 
+@ObjectModel.semanticKey: [ 'BookName', 'Author', 'Language' ]
 @ObjectModel.usageType: { serviceQuality: #X, sizeCategory: #S, dataClass: #MASTER }
 
 define root table entity ZDGD_I_BookMasterData
@@ -20,7 +21,7 @@ define root table entity ZDGD_I_BookMasterData
       @Semantics.language: true
       Language     : spras;
 
-      //include ZDGD_RAPAdminFields.* signature only; //Aspects not supported yet in Service Binding (Release 2608)
+      // include ZDGD_RAPAdminFields.* signature only; //Aspects not supported yet in Service Binding (Release 2608)
       @Semantics.user.createdBy: true
       LocalCreatedBy     : abp_creation_user;
 

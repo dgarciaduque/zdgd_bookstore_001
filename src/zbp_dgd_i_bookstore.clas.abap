@@ -3,4 +3,3 @@ ENDCLASS.
 
 CLASS zbp_dgd_i_bookstore IMPLEMENTATION.
 ENDCLASS.
-

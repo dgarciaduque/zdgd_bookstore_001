@@ -21,6 +21,8 @@ authorization master ( instance )
 
   field ( readonly, numbering : managed ) BookstoreID;
 
+//  validation validate_book_master_data on save { field BookstoreID; }
+
   association _Books { create; with draft; }
 }
 
@@ -32,7 +34,11 @@ authorization dependent by _Bookstore
 {
   update;
   delete;
-  field ( readonly, numbering : managed ) BookID;
+
+  field ( readonly : update ) BookID;
   field ( readonly ) BookstoreID;
+
+  validation validate_book_master_data on save { create; update; }
+
   association _Bookstore { with draft; }
 }

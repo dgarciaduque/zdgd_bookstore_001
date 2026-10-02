@@ -14,6 +14,7 @@ CLASS lhc_Book DEFINITION INHERITING FROM cl_abap_behavior_handler FRIENDS ltcl_
 
 ENDCLASS.
 
+
 CLASS lhc_Book IMPLEMENTATION.
   METHOD get_instance_authorizations.
   ENDMETHOD.
@@ -23,10 +24,10 @@ CLASS lhc_Book IMPLEMENTATION.
 
   METHOD avoid_duplicates.
     READ ENTITIES OF zdgd_i_bookmasterdata IN LOCAL MODE
-      ENTITY Book
-        FIELDS ( BookName Author Language )
-        WITH CORRESPONDING #( keys )
-      RESULT DATA(books).
+         ENTITY Book
+         FIELDS ( BookName Author Language )
+         WITH CORRESPONDING #( keys )
+         RESULT DATA(books).
 
     IF books IS INITIAL.
       RETURN.
@@ -48,10 +49,10 @@ CLASS lhc_Book IMPLEMENTATION.
                       %state_area = state_area_duplicates ) TO reported-book.
 
       LOOP AT potential_duplicates TRANSPORTING NO FIELDS
-           WHERE BookName =  book-BookName
-             AND Author   =  book-Author
-             AND Language =  book-Language
-             AND BookID   <> book-BookID.
+           WHERE     BookName  = book-BookName
+                 AND Author    = book-Author
+                 AND Language  = book-Language
+                 AND BookID   <> book-BookID.
         EXIT.
       ENDLOOP.
       IF sy-subrc <> 0.
@@ -59,17 +60,15 @@ CLASS lhc_Book IMPLEMENTATION.
       ENDIF.
 
       APPEND VALUE #( %tky = book-%tky ) TO failed-book.
-      APPEND VALUE #( %tky               = book-%tky
-                      %state_area        = state_area_duplicates
-                      %msg               = NEW zdgd_book_exception(
-                                               textid    = zdgd_book_exception=>duplicate_book
-                                               book_name = book-BookName
-                                               author    = book-Author
-                                               language  = book-Language )
-                      %element-BookName  = if_abap_behv=>mk-on
-                      %element-Author    = if_abap_behv=>mk-on
-                      %element-Language  = if_abap_behv=>mk-on ) TO reported-book.
+      APPEND VALUE #( %tky              = book-%tky
+                      %state_area       = state_area_duplicates
+                      %msg              = NEW zdgd_book_exception( textid    = zdgd_book_exception=>duplicate_book
+                                                                   book_name = book-BookName
+                                                                   author    = book-Author
+                                                                   language  = book-Language )
+                      %element-BookName = if_abap_behv=>mk-on
+                      %element-Author   = if_abap_behv=>mk-on
+                      %element-Language = if_abap_behv=>mk-on ) TO reported-book.
     ENDLOOP.
   ENDMETHOD.
-
 ENDCLASS.
