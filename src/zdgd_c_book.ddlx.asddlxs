@@ -1,21 +1,34 @@
 @Metadata.layer: #CORE
 
+@UI.headerInfo: { typeName: 'Book',
+                  typeNamePlural: 'Books',
+                  title: { type: #STANDARD, value: 'BookName' } }
+
 annotate entity ZDGD_C_Book
   with
 
 {
+  @UI.facet: [ { id: 'Book',
+                 purpose: #STANDARD,
+                 type: #IDENTIFICATION_REFERENCE,
+                 label: 'Book',
+                 position: 10 } ]
   @UI.hidden: true
   BookID;
 
+  @UI.identification: [ { position: 10 } ]
   @UI.lineItem: [ { position: 10 } ]
   BookName;
 
+  @UI.identification: [ { position: 20 } ]
   @UI.lineItem: [ { position: 20 } ]
   Author;
 
+  @UI.identification: [ { position: 30 } ]
   @UI.lineItem: [ { position: 30 } ]
   UnitsInStock;
 
+  @UI.identification: [ { position: 40 } ]
   @UI.lineItem: [ { position: 40 } ]
   Language;
 }

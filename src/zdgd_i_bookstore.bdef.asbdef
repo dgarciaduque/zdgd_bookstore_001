@@ -17,11 +17,11 @@ authorization master ( instance )
   draft action Discard;
   draft action Activate optimized;
   draft action Resume;
-  draft determine action Prepare;
+  draft determine action Prepare { validation Book~validate_book_master_data; }
 
   field ( readonly, numbering : managed ) BookstoreID;
 
-//  validation validate_book_master_data on save { field BookstoreID; }
+  //validation validate_book_master_data on save { association _Books; }
 
   association _Books { create; with draft; }
 }

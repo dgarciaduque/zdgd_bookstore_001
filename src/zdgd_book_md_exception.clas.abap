@@ -1,10 +1,10 @@
-CLASS zdgd_book_exception DEFINITION PUBLIC INHERITING FROM cx_static_check FINAL CREATE PUBLIC.
+CLASS zdgd_book_md_exception DEFINITION PUBLIC INHERITING FROM cx_static_check FINAL CREATE PUBLIC.
   PUBLIC SECTION.
     INTERFACES if_abap_behv_message.
 
     CONSTANTS:
       BEGIN OF duplicate_book,
-        msgid TYPE symsgid      VALUE 'ZDGD_BOOK',
+        msgid TYPE symsgid      VALUE 'ZDGD_BOOK_MD',
         msgno TYPE symsgno      VALUE '001',
         attr1 TYPE scx_attrname VALUE 'BOOK_NAME',
         attr2 TYPE scx_attrname VALUE 'AUTHOR',
@@ -25,7 +25,7 @@ CLASS zdgd_book_exception DEFINITION PUBLIC INHERITING FROM cx_static_check FINA
                 !language TYPE spras                            OPTIONAL.
 ENDCLASS.
 
-CLASS zdgd_book_exception IMPLEMENTATION.
+CLASS zdgd_book_md_exception IMPLEMENTATION.
   METHOD constructor ##ADT_SUPPRESS_GENERATION.
     super->constructor( previous = previous ).
     CLEAR me->textid.

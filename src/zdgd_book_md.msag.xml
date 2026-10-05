@@ -1,0 +1,20 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<abapGit version="v1.0.0" serializer="LCL_OBJECT_MSAG" serializer_version="v1.0.0">
+ <asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0">
+  <asx:values>
+   <T100A>
+    <ARBGB>ZDGD_BOOK_MD</ARBGB>
+    <MASTERLANG>E</MASTERLANG>
+    <STEXT>Book Master Data: Messages</STEXT>
+   </T100A>
+   <T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZDGD_BOOK_MD</ARBGB>
+     <MSGNR>001</MSGNR>
+     <TEXT>Book &apos;&amp;1&apos; by &apos;&amp;2&apos; in language &apos;&amp;3&apos; already exists</TEXT>
+    </T100>
+   </T100>
+  </asx:values>
+ </asx:abap>
+</abapGit>

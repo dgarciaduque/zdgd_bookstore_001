@@ -3,9 +3,9 @@
  <asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0">
   <asx:values>
    <VSEOCLASS>
-    <CLSNAME>ZDGD_BOOK_EXCEPTION</CLSNAME>
+    <CLSNAME>ZDGD_BOOK_MD_EXCEPTION</CLSNAME>
     <LANGU>E</LANGU>
-    <DESCRIPT>Book: Exception class</DESCRIPT>
+    <DESCRIPT>Book Master Data: Exception class</DESCRIPT>
     <CATEGORY>40</CATEGORY>
     <STATE>1</STATE>
     <CLSCCINCL>X</CLSCCINCL>

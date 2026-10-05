@@ -62,10 +62,10 @@ CLASS lhc_Book IMPLEMENTATION.
       APPEND VALUE #( %tky = book-%tky ) TO failed-book.
       APPEND VALUE #( %tky              = book-%tky
                       %state_area       = state_area_duplicates
-                      %msg              = NEW zdgd_book_exception( textid    = zdgd_book_exception=>duplicate_book
-                                                                   book_name = book-BookName
-                                                                   author    = book-Author
-                                                                   language  = book-Language )
+                      %msg              = NEW zdgd_book_md_exception( textid    = zdgd_book_md_exception=>duplicate_book
+                                                                      book_name = book-BookName
+                                                                      author    = book-Author
+                                                                      language  = book-Language )
                       %element-BookName = if_abap_behv=>mk-on
                       %element-Author   = if_abap_behv=>mk-on
                       %element-Language = if_abap_behv=>mk-on ) TO reported-book.

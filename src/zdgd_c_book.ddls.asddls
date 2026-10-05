@@ -11,16 +11,16 @@ define view entity ZDGD_C_Book
   key BookstoreID,
   key BookID,
 
-      @Consumption.valueHelpDefinition: [ { entity: { name: 'ZDGD_I_BookMasterData', element: 'BookName' },
+      @Consumption.valueHelpDefinition: [ { entity: { name: 'ZDGD_C_BookMasterData', element: 'BookName' },
                                             additionalBinding: [ { element: 'BookID',
                                                                    localElement: 'BookID',
                                                                    usage: #RESULT },
                                                                  { element: 'Author',
                                                                    localElement: 'Author',
-                                                                   usage: #FILTER_AND_RESULT },
+                                                                   usage: #RESULT },
                                                                  { element: 'Language',
                                                                    localElement: 'Language',
-                                                                   usage: #FILTER_AND_RESULT } ] } ]
+                                                                   usage: #RESULT } ] } ]
       BookName,
 
       Author,

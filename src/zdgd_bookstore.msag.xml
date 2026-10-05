@@ -3,16 +3,16 @@
  <asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0">
   <asx:values>
    <T100A>
-    <ARBGB>ZDGD_BOOK</ARBGB>
+    <ARBGB>ZDGD_BOOKSTORE</ARBGB>
     <MASTERLANG>E</MASTERLANG>
-    <STEXT>Message class: Book</STEXT>
+    <STEXT>Bookstore BO: Messages</STEXT>
    </T100A>
    <T100>
     <T100>
      <SPRSL>E</SPRSL>
-     <ARBGB>ZDGD_BOOK</ARBGB>
+     <ARBGB>ZDGD_BOOKSTORE</ARBGB>
      <MSGNR>001</MSGNR>
-     <TEXT>Book &apos;&amp;1&apos; by &apos;&amp;2&apos; in language &apos;&amp;3&apos; already exists</TEXT>
+     <TEXT>Select a book that exists in active master data.</TEXT>
     </T100>
    </T100>
   </asx:values>
