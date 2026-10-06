@@ -20,14 +20,15 @@ authorization master ( instance )
   draft determine action Prepare { validation Book~validate_book_master_data; }
 
   field ( readonly, numbering : managed ) BookstoreID;
-
-  //validation validate_book_master_data on save { association _Books; }
+  field ( mandatory : create ) BookstoreName;
+  field ( mandatory : create ) City;
 
   association _Books { create; with draft; }
 }
 
 define behavior for ZDGD_I_Book alias Book
 draft table zdgd_i_book_d
+early numbering
 lock dependent by _Bookstore
 etag dependent by _Bookstore
 authorization dependent by _Bookstore
@@ -37,6 +38,9 @@ authorization dependent by _Bookstore
 
   field ( readonly : update ) BookID;
   field ( readonly ) BookstoreID;
+  field ( mandatory : create, features : instance ) BookName;
+  field ( mandatory : create, features : instance ) Author;
+  field ( mandatory : create, features : instance ) Language;
 
   validation validate_book_master_data on save { create; update; }
 

@@ -1,10 +1,319 @@
 *"* use this source file for your ABAP unit test classes
-CLASS ltcl_book_master_data DEFINITION FINAL
+CLASS ltcl_book_numbering DEFINITION FINAL
   FOR TESTING RISK LEVEL HARMLESS DURATION SHORT.
 
   PRIVATE SECTION.
     TYPES master_books TYPE STANDARD TABLE OF zdgd_i_bookmasterdata WITH EMPTY KEY.
-    TYPES draft_books  TYPE STANDARD TABLE OF zdgd_i_bookmasterdata_d WITH EMPTY KEY.
+    TYPES draft_books TYPE STANDARD TABLE OF zdgd_i_bookmasterdata_d WITH EMPTY KEY.
+
+    CONSTANTS master_id TYPE sysuuid_x16 VALUE '00000000000000000000000000000002'.
+    CONSTANTS other_id TYPE sysuuid_x16 VALUE '00000000000000000000000000000003'.
+    CONSTANTS store_id TYPE sysuuid_x16 VALUE '00000000000000000000000000000001'.
+
+    CLASS-DATA sql_environment TYPE REF TO if_osql_test_environment.
+    DATA cut TYPE REF TO lhc_bookstore.
+    DATA requests TYPE TABLE FOR CREATE zdgd_i_bookstore\\Bookstore\_Books.
+    DATA mapped TYPE RESPONSE FOR MAPPED EARLY zdgd_i_bookstore.
+    DATA failed TYPE RESPONSE FOR FAILED EARLY zdgd_i_bookstore.
+    DATA reported TYPE RESPONSE FOR REPORTED EARLY zdgd_i_bookstore.
+
+    CLASS-METHODS class_setup.
+    CLASS-METHODS class_teardown.
+    METHODS setup.
+    METHODS teardown.
+
+    METHODS resolves_semantic_key FOR TESTING.
+    METHODS preserves_matching_id FOR TESTING.
+    METHODS preserves_id_for_detail FOR TESTING.
+    METHODS rejects_conflicting_id FOR TESTING.
+    METHODS rejects_missing_master FOR TESTING.
+    METHODS rejects_ambiguous_master FOR TESTING.
+    METHODS ignores_draft_only_master FOR TESTING.
+    METHODS matches_all_semantic_fields FOR TESTING.
+    METHODS handles_mixed_batch FOR TESTING.
+    METHODS rejects_duplicate_in_store FOR TESTING.
+    METHODS allows_book_in_other_store FOR TESTING.
+    METHODS distinguishes_parent_refs FOR TESTING.
+    METHODS empty_requests FOR TESTING.
+    METHODS empty_targets FOR TESTING.
+
+    METHODS given_master
+      IMPORTING book_id TYPE sysuuid_x16 DEFAULT master_id
+                book_name TYPE zdgd_bookname DEFAULT 'Book A'
+                author TYPE zdgd_bookauthor DEFAULT 'Author A'
+                !language TYPE spras DEFAULT 'E'.
+    METHODS given_request
+      IMPORTING cid TYPE abp_behv_cid DEFAULT 'BOOK'
+                bookstore_id TYPE sysuuid_x16 DEFAULT store_id
+                parent_cid TYPE abp_behv_cid OPTIONAL
+                book_id TYPE sysuuid_x16 OPTIONAL
+                book_name TYPE zdgd_bookname DEFAULT 'Book A'
+                author TYPE zdgd_bookauthor DEFAULT 'Author A'
+                !language TYPE spras DEFAULT 'E'
+                is_draft TYPE abp_behv_flag DEFAULT if_abap_behv=>mk-on.
+    METHODS when_numbered.
+    METHODS assert_mapping
+      IMPORTING cid TYPE abp_behv_cid DEFAULT 'BOOK'
+                bookstore_id TYPE sysuuid_x16 DEFAULT store_id
+                book_id TYPE sysuuid_x16 DEFAULT master_id
+                is_draft TYPE abp_behv_flag DEFAULT if_abap_behv=>mk-on.
+    METHODS assert_failure
+      IMPORTING cid TYPE abp_behv_cid DEFAULT 'BOOK'
+                message_text TYPE string.
+ENDCLASS.
+
+CLASS ltcl_book_numbering IMPLEMENTATION.
+  METHOD class_setup.
+    sql_environment = cl_osql_test_environment=>create(
+        i_dependency_list = VALUE #( ( 'ZDGD_I_BOOKMASTERDATA' ) ( 'ZDGD_I_BOOKMASTERDATA_D' ) ) ).
+  ENDMETHOD.
+
+  METHOD class_teardown.
+    sql_environment->destroy( ).
+  ENDMETHOD.
+
+  METHOD setup.
+    CREATE OBJECT cut FOR TESTING.
+    CLEAR: requests, mapped, failed, reported.
+  ENDMETHOD.
+
+  METHOD teardown.
+    sql_environment->clear_doubles( ).
+  ENDMETHOD.
+
+  METHOD resolves_semantic_key.
+    given_master( ).
+    given_request( ).
+
+    when_numbered( ).
+
+    cl_abap_unit_assert=>assert_equals( exp = 1 act = lines( mapped-book ) ).
+    cl_abap_unit_assert=>assert_initial( failed ).
+    cl_abap_unit_assert=>assert_initial( reported ).
+    assert_mapping( ).
+  ENDMETHOD.
+
+  METHOD preserves_matching_id.
+    given_master( ).
+    given_request( book_id = master_id is_draft = if_abap_behv=>mk-off ).
+
+    when_numbered( ).
+
+    cl_abap_unit_assert=>assert_initial( failed ).
+    cl_abap_unit_assert=>assert_initial( reported ).
+    assert_mapping( is_draft = if_abap_behv=>mk-off ).
+  ENDMETHOD.
+
+  METHOD preserves_id_for_detail.
+    given_master( ).
+    given_request( book_id = master_id language = 'D' ).
+
+    when_numbered( ).
+
+    cl_abap_unit_assert=>assert_initial( failed ).
+    cl_abap_unit_assert=>assert_initial( reported ).
+    assert_mapping( ).
+  ENDMETHOD.
+
+  METHOD rejects_conflicting_id.
+    given_master( ).
+    given_request( book_id = other_id ).
+
+    when_numbered( ).
+
+    cl_abap_unit_assert=>assert_initial( mapped ).
+    assert_failure( message_text = 'Book ID conflicts with matching master book' ).
+    cl_abap_unit_assert=>assert_equals( exp = other_id act = failed-book[ 1 ]-BookID ).
+  ENDMETHOD.
+
+  METHOD rejects_missing_master.
+    given_request( ).
+
+    when_numbered( ).
+
+    cl_abap_unit_assert=>assert_initial( mapped ).
+    assert_failure( message_text = 'No master book matches name, author and language' ).
+  ENDMETHOD.
+
+  METHOD rejects_ambiguous_master.
+    given_master( ).
+    given_master( book_id = other_id ).
+    given_request( ).
+
+    when_numbered( ).
+
+    cl_abap_unit_assert=>assert_initial( mapped ).
+    assert_failure( message_text = 'Ambiguous master book: name, author and language' ).
+  ENDMETHOD.
+
+  METHOD ignores_draft_only_master.
+    sql_environment->insert_test_data(
+        VALUE draft_books( ( BookID = master_id BookName = 'Book A' Author = 'Author A' Language = 'E' ) ) ).
+    given_request( ).
+
+    when_numbered( ).
+
+    cl_abap_unit_assert=>assert_initial( mapped ).
+    assert_failure( message_text = 'No master book matches name, author and language' ).
+  ENDMETHOD.
+
+  METHOD matches_all_semantic_fields.
+    given_master( ).
+    given_master( book_id = other_id language = 'D' ).
+    given_request( language = 'D' ).
+
+    when_numbered( ).
+
+    cl_abap_unit_assert=>assert_initial( failed ).
+    assert_mapping( book_id = other_id ).
+
+    CLEAR requests.
+    given_request( author = 'Other Author' ).
+    when_numbered( ).
+    cl_abap_unit_assert=>assert_initial( mapped ).
+    assert_failure( message_text = 'No master book matches name, author and language' ).
+
+    CLEAR requests.
+    given_request( book_name = 'Other Book' ).
+    when_numbered( ).
+    cl_abap_unit_assert=>assert_initial( mapped ).
+    assert_failure( message_text = 'No master book matches name, author and language' ).
+  ENDMETHOD.
+
+  METHOD handles_mixed_batch.
+    given_master( ).
+    given_request( ).
+    given_request( cid = 'MISSING' book_name = 'Missing Book' ).
+
+    when_numbered( ).
+
+    cl_abap_unit_assert=>assert_equals( exp = 1 act = lines( mapped-book ) ).
+    assert_mapping( ).
+    assert_failure( cid = 'MISSING'
+            message_text = 'No master book matches name, author and language' ).
+  ENDMETHOD.
+
+  METHOD rejects_duplicate_in_store.
+    given_master( ).
+    given_request( ).
+    given_request( cid = 'DUPLICATE' ).
+
+    when_numbered( ).
+
+    cl_abap_unit_assert=>assert_equals( exp = 1 act = lines( mapped-book ) ).
+    assert_mapping( ).
+    assert_failure( cid = 'DUPLICATE'
+            message_text = 'Master book requested twice for this bookstore' ).
+  ENDMETHOD.
+
+  METHOD allows_book_in_other_store.
+    given_master( ).
+    given_request( ).
+    given_request( cid = 'OTHER_STORE' bookstore_id = other_id ).
+
+    when_numbered( ).
+
+    cl_abap_unit_assert=>assert_equals( exp = 2 act = lines( mapped-book ) ).
+    cl_abap_unit_assert=>assert_initial( failed ).
+    cl_abap_unit_assert=>assert_initial( reported ).
+    assert_mapping( ).
+    assert_mapping( cid = 'OTHER_STORE' bookstore_id = other_id ).
+  ENDMETHOD.
+
+  METHOD distinguishes_parent_refs.
+    given_master( ).
+    given_request( bookstore_id = CONV #( '' ) parent_cid = 'STORE_A' ).
+    given_request( cid = 'OTHER_PARENT' bookstore_id = CONV #( '' ) parent_cid = 'STORE_B' ).
+
+    when_numbered( ).
+
+    cl_abap_unit_assert=>assert_equals( exp = 2 act = lines( mapped-book ) ).
+    cl_abap_unit_assert=>assert_initial( failed ).
+    assert_mapping( bookstore_id = CONV #( '' ) ).
+    assert_mapping( cid = 'OTHER_PARENT' bookstore_id = CONV #( '' ) ).
+  ENDMETHOD.
+
+  METHOD empty_requests.
+    when_numbered( ).
+
+    cl_abap_unit_assert=>assert_initial( mapped ).
+    cl_abap_unit_assert=>assert_initial( failed ).
+    cl_abap_unit_assert=>assert_initial( reported ).
+  ENDMETHOD.
+
+  METHOD empty_targets.
+    requests = VALUE #( ( BookstoreID = store_id %is_draft = if_abap_behv=>mk-on ) ).
+
+    when_numbered( ).
+
+    cl_abap_unit_assert=>assert_initial( mapped ).
+    cl_abap_unit_assert=>assert_initial( failed ).
+    cl_abap_unit_assert=>assert_initial( reported ).
+  ENDMETHOD.
+
+  METHOD given_master.
+    sql_environment->insert_test_data(
+        VALUE master_books( ( BookID = book_id BookName = book_name Author = author Language = language ) ) ).
+  ENDMETHOD.
+
+  METHOD given_request.
+    APPEND VALUE #( BookstoreID = bookstore_id
+                    %cid_ref = parent_cid
+                    %is_draft = is_draft
+                    %target = VALUE #( ( %cid = cid
+                                         %is_draft = is_draft
+                                         BookID = book_id
+                                         BookName = book_name
+                                         Author = author
+                                         Language = language
+                                         %control-BookName = if_abap_behv=>mk-on
+                                         %control-Author = if_abap_behv=>mk-on
+                                         %control-Language = if_abap_behv=>mk-on ) ) ) TO requests.
+  ENDMETHOD.
+
+  METHOD when_numbered.
+    CLEAR: mapped, failed, reported.
+    cut->earlynumbering_cba_books( EXPORTING entities = requests
+                                  CHANGING mapped = mapped failed = failed reported = reported ).
+  ENDMETHOD.
+
+  METHOD assert_mapping.
+    DATA(found) = abap_false.
+    LOOP AT mapped-book INTO DATA(book) USING KEY cid WHERE %cid = cid.
+      cl_abap_unit_assert=>assert_false( found ).
+      found = abap_true.
+      cl_abap_unit_assert=>assert_equals( exp = bookstore_id act = book-BookstoreID ).
+      cl_abap_unit_assert=>assert_equals( exp = book_id act = book-BookID ).
+      cl_abap_unit_assert=>assert_equals( exp = is_draft act = book-%is_draft ).
+    ENDLOOP.
+    cl_abap_unit_assert=>assert_true( found ).
+  ENDMETHOD.
+
+  METHOD assert_failure.
+    cl_abap_unit_assert=>assert_equals( exp = 1 act = lines( failed-book ) ).
+    cl_abap_unit_assert=>assert_equals( exp = cid act = failed-book[ 1 ]-%cid ).
+    cl_abap_unit_assert=>assert_equals( exp = if_abap_behv=>mk-on act = failed-book[ 1 ]-%is_draft ).
+    cl_abap_unit_assert=>assert_equals( exp = store_id act = failed-book[ 1 ]-BookstoreID ).
+    cl_abap_unit_assert=>assert_equals( exp = 1 act = lines( reported-book ) ).
+    DATA(error) = reported-book[ 1 ].
+    cl_abap_unit_assert=>assert_equals( exp = cid act = error-%cid ).
+    cl_abap_unit_assert=>assert_equals( exp = if_abap_behv=>mk-on act = error-%is_draft ).
+    cl_abap_unit_assert=>assert_equals( exp = if_abap_behv=>mk-on act = error-%element-BookName ).
+    cl_abap_unit_assert=>assert_equals( exp = if_abap_behv=>mk-on act = error-%element-Author ).
+    cl_abap_unit_assert=>assert_equals( exp = if_abap_behv=>mk-on act = error-%element-Language ).
+    cl_abap_unit_assert=>assert_bound( error-%msg ).
+    cl_abap_unit_assert=>assert_equals( exp = if_abap_behv_message=>severity-error act = error-%msg->m_severity ).
+    cl_abap_unit_assert=>assert_equals( exp = message_text act = error-%msg->if_message~get_text( ) ).
+  ENDMETHOD.
+ENDCLASS.
+
+CLASS ltcl_book_master_data DEFINITION FINAL
+  FOR TESTING RISK LEVEL HARMLESS DURATION SHORT.
+
+  PRIVATE SECTION.
+    TYPES master_books    TYPE STANDARD TABLE OF zdgd_i_bookmasterdata WITH EMPTY KEY.
+    TYPES draft_books     TYPE STANDARD TABLE OF zdgd_i_bookmasterdata_d WITH EMPTY KEY.
+    TYPES persisted_books TYPE STANDARD TABLE OF zdgd_i_book WITH EMPTY KEY.
 
     CONSTANTS master_book_id  TYPE sysuuid_x16 VALUE '00000000000000000000000000000002'.
     CONSTANTS missing_book_id TYPE sysuuid_x16 VALUE '00000000000000000000000000000003'.
@@ -12,10 +321,13 @@ CLASS ltcl_book_master_data DEFINITION FINAL
     CLASS-DATA sql_test_environment TYPE REF TO if_osql_test_environment.
     CLASS-DATA bo_test_environment  TYPE REF TO if_botd_txbufdbl_bo_test_env.
 
-    DATA cut       TYPE REF TO lhc_book.
-    DATA book_keys TYPE TABLE FOR READ IMPORT zdgd_i_bookstore\\Book.
-    DATA failed    TYPE RESPONSE FOR FAILED LATE zdgd_i_bookstore.
-    DATA reported  TYPE RESPONSE FOR REPORTED LATE zdgd_i_bookstore.
+    DATA cut              TYPE REF TO lhc_book.
+    DATA book_keys        TYPE TABLE FOR READ IMPORT zdgd_i_bookstore\\Book.
+    DATA failed           TYPE RESPONSE FOR FAILED LATE zdgd_i_bookstore.
+    DATA reported         TYPE RESPONSE FOR REPORTED LATE zdgd_i_bookstore.
+    DATA feature_result   TYPE TABLE FOR INSTANCE FEATURES RESULT zdgd_i_bookstore\\Book.
+    DATA feature_failed   TYPE RESPONSE FOR FAILED EARLY zdgd_i_bookstore.
+    DATA feature_reported TYPE RESPONSE FOR REPORTED EARLY zdgd_i_bookstore.
 
     CLASS-METHODS class_setup.
     CLASS-METHODS class_teardown.
@@ -42,6 +354,21 @@ CLASS ltcl_book_master_data DEFINITION FINAL
     METHODS corrected_details_clear_msg    FOR TESTING.
     METHODS mixed_details_batch            FOR TESTING.
     METHODS draft_details_mismatch         FOR TESTING.
+    METHODS new_draft_language_changed     FOR TESTING.
+    METHODS persisted_book_is_read_only    FOR TESTING.
+    METHODS edit_draft_is_read_only        FOR TESTING.
+    METHODS new_draft_is_editable          FOR TESTING.
+    METHODS other_store_does_not_lock      FOR TESTING.
+    METHODS mixed_features                 FOR TESTING.
+    METHODS empty_features                 FOR TESTING.
+    METHODS missing_features               FOR TESTING.
+
+    METHODS given_persisted_book.
+    METHODS when_features_requested.
+
+    METHODS assert_field_features
+      IMPORTING key_index TYPE i
+                read_only TYPE abap_bool.
 
     METHODS given_book
       IMPORTING book_id   TYPE sysuuid_x16
@@ -57,16 +384,17 @@ CLASS ltcl_book_master_data DEFINITION FINAL
                 author_flag   TYPE abp_behv_flag DEFAULT if_abap_behv=>mk-off
                 language_flag TYPE abp_behv_flag DEFAULT if_abap_behv=>mk-off.
 
+    METHODS zero_id_draft_targets_fields FOR TESTING.
     METHODS when_validated.
-    METHODS count_errors RETURNING VALUE(result) TYPE i.
+    METHODS count_errors                 RETURNING VALUE(result) TYPE i.
 ENDCLASS.
 
 
 CLASS ltcl_book_master_data IMPLEMENTATION.
   METHOD class_setup.
-    sql_test_environment = cl_osql_test_environment=>create(
-                               i_dependency_list = VALUE #( ( 'ZDGD_I_BOOKMASTERDATA' )
-                                                            ( 'ZDGD_I_BOOKMASTERDATA_D' ) ) ).
+    sql_test_environment = cl_osql_test_environment=>create( i_dependency_list = VALUE #( ( 'ZDGD_I_BOOKMASTERDATA' )
+                                                                                          ( 'ZDGD_I_BOOKMASTERDATA_D' )
+                                                                                          ( 'ZDGD_I_BOOK' ) ) ).
     bo_test_environment = cl_botd_txbufdbl_bo_test_env=>create(
                               environment_config = cl_botd_txbufdbl_bo_test_env=>prepare_environment_config(
                                )->set_bdef_dependencies( VALUE #( ( 'ZDGD_I_BOOKSTORE' ) ) ) ).
@@ -81,7 +409,10 @@ CLASS ltcl_book_master_data IMPLEMENTATION.
     CREATE OBJECT cut FOR TESTING.
     CLEAR: book_keys,
            failed,
-           reported.
+           reported,
+           feature_result,
+           feature_failed,
+           feature_reported.
   ENDMETHOD.
 
   METHOD teardown.
@@ -119,9 +450,19 @@ CLASS ltcl_book_master_data IMPLEMENTATION.
     DATA(error) = reported-book[ 2 ].
     cl_abap_unit_assert=>assert_equals( exp = book_keys[ 1 ]-%tky
                                         act = error-%tky ).
+    cl_abap_unit_assert=>assert_equals( exp = book_keys[ 1 ]-BookstoreID
+                                        act = error-%path-Bookstore-BookstoreID ).
+    cl_abap_unit_assert=>assert_equals( exp = book_keys[ 1 ]-%is_draft
+                                        act = error-%path-Bookstore-%is_draft ).
     cl_abap_unit_assert=>assert_equals( exp = 'BOOK_MASTER_DATA'
                                         act = error-%state_area ).
     cl_abap_unit_assert=>assert_equals( exp = if_abap_behv=>mk-on
+                                        act = error-%element-BookName ).
+    cl_abap_unit_assert=>assert_equals( exp = if_abap_behv=>mk-on
+                                        act = error-%element-Author ).
+    cl_abap_unit_assert=>assert_equals( exp = if_abap_behv=>mk-on
+                                        act = error-%element-Language ).
+    cl_abap_unit_assert=>assert_equals( exp = if_abap_behv=>mk-off
                                         act = error-%element-BookID ).
     cl_abap_unit_assert=>assert_equals( exp = if_abap_behv_message=>severity-error
                                         act = error-%msg->m_severity ).
@@ -336,6 +677,8 @@ CLASS ltcl_book_master_data IMPLEMENTATION.
                                         act = count_errors( ) ).
     cl_abap_unit_assert=>assert_equals( exp = if_abap_behv=>mk-on
                                         act = reported-book[ 3 ]-%element-Author ).
+    cl_abap_unit_assert=>assert_equals( exp = book_keys[ 2 ]-BookstoreID
+                                        act = reported-book[ 3 ]-%path-Bookstore-BookstoreID ).
   ENDMETHOD.
 
   METHOD draft_details_mismatch.
@@ -344,11 +687,207 @@ CLASS ltcl_book_master_data IMPLEMENTATION.
                 is_draft  = if_abap_behv=>mk-on
                 book_name = 'Master Book'
                 author    = 'Master Author'
-                language  = 'F' ).
+          language  = 'E' ).
+
+        MODIFY ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
+          ENTITY Book UPDATE FIELDS ( Language )
+          WITH VALUE #( ( %tky = book_keys[ 1 ]-%tky Language = 'P' ) )
+          FAILED DATA(update_failed).
+        cl_abap_unit_assert=>assert_initial( update_failed ).
+
     when_validated( ).
     assert_mismatch( language_flag = if_abap_behv=>mk-on ).
     cl_abap_unit_assert=>assert_equals( exp = if_abap_behv=>mk-on
                                         act = failed-book[ 1 ]-%is_draft ).
+  ENDMETHOD.
+
+  METHOD new_draft_language_changed.
+    given_master_details( ).
+    given_book( book_id   = master_book_id
+                is_draft  = if_abap_behv=>mk-on
+                book_name = 'Master Book'
+                author    = 'Master Author'
+                language  = 'E' ).
+    when_validated( ).
+    cl_abap_unit_assert=>assert_initial( failed-book ).
+
+    MODIFY ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
+           ENTITY Book UPDATE FIELDS ( Language )
+           WITH VALUE #( ( %tky = book_keys[ 1 ]-%tky Language = 'S' ) )
+           FAILED DATA(update_failed).
+    cl_abap_unit_assert=>assert_initial( update_failed ).
+
+    when_validated( ).
+    assert_mismatch( language_flag = if_abap_behv=>mk-on ).
+    DATA(error) = reported-book[ 2 ].
+    cl_abap_unit_assert=>assert_equals( exp = if_abap_behv=>mk-on
+                                        act = error-%is_draft ).
+    cl_abap_unit_assert=>assert_equals( exp = book_keys[ 1 ]-BookstoreID
+                                        act = error-%path-Bookstore-BookstoreID ).
+    cl_abap_unit_assert=>assert_equals( exp = if_abap_behv=>mk-on
+                                        act = error-%path-Bookstore-%is_draft ).
+  ENDMETHOD.
+
+  METHOD zero_id_draft_targets_fields.
+    given_master_details( ).
+    given_book( book_id   = CONV sysuuid_x16( '' )
+                is_draft  = if_abap_behv=>mk-on
+                book_name = 'Master Book'
+                author    = 'Master Author'
+                language  = 'S' ).
+
+    when_validated( ).
+
+    cl_abap_unit_assert=>assert_equals( exp = 1
+                                        act = lines( failed-book ) ).
+    cl_abap_unit_assert=>assert_equals( exp = 1
+                                        act = count_errors( ) ).
+    DATA(error) = reported-book[ 2 ].
+    cl_abap_unit_assert=>assert_initial( error-BookID ).
+    cl_abap_unit_assert=>assert_equals( exp = book_keys[ 1 ]-%tky
+                                        act = error-%tky ).
+    cl_abap_unit_assert=>assert_equals( exp = book_keys[ 1 ]-BookstoreID
+                                        act = error-%path-Bookstore-BookstoreID ).
+    cl_abap_unit_assert=>assert_equals( exp = if_abap_behv=>mk-on
+                                        act = error-%path-Bookstore-%is_draft ).
+    cl_abap_unit_assert=>assert_equals( exp = if_abap_behv=>mk-on
+                                        act = error-%element-BookName ).
+    cl_abap_unit_assert=>assert_equals( exp = if_abap_behv=>mk-on
+                                        act = error-%element-Author ).
+    cl_abap_unit_assert=>assert_equals( exp = if_abap_behv=>mk-on
+                                        act = error-%element-Language ).
+    cl_abap_unit_assert=>assert_equals( exp = if_abap_behv=>mk-off
+                                        act = error-%element-BookID ).
+  ENDMETHOD.
+
+  METHOD persisted_book_is_read_only.
+    given_book( master_book_id ).
+    given_persisted_book( ).
+
+    when_features_requested( ).
+
+    cl_abap_unit_assert=>assert_equals( exp = 1
+                                        act = lines( feature_result ) ).
+    assert_field_features( key_index = 1
+                           read_only = abap_true ).
+  ENDMETHOD.
+
+  METHOD edit_draft_is_read_only.
+    given_book( book_id  = master_book_id
+                is_draft = if_abap_behv=>mk-on ).
+    given_persisted_book( ).
+
+    when_features_requested( ).
+
+    cl_abap_unit_assert=>assert_equals( exp = 1
+                                        act = lines( feature_result ) ).
+    assert_field_features( key_index = 1
+                           read_only = abap_true ).
+  ENDMETHOD.
+
+  METHOD new_draft_is_editable.
+    given_master_details( ).
+    given_book( book_id  = master_book_id
+                is_draft = if_abap_behv=>mk-on ).
+
+    when_features_requested( ).
+
+    cl_abap_unit_assert=>assert_equals( exp = 1
+                                        act = lines( feature_result ) ).
+    assert_field_features( key_index = 1
+                           read_only = abap_false ).
+  ENDMETHOD.
+
+  METHOD other_store_does_not_lock.
+    given_book( master_book_id ).
+    given_persisted_book( ).
+    given_book( book_id  = master_book_id
+                is_draft = if_abap_behv=>mk-on ).
+
+    when_features_requested( ).
+
+    cl_abap_unit_assert=>assert_equals( exp = 2
+                                        act = lines( feature_result ) ).
+    assert_field_features( key_index = 1
+                           read_only = abap_true ).
+    assert_field_features( key_index = 2
+                           read_only = abap_false ).
+  ENDMETHOD.
+
+  METHOD mixed_features.
+    given_book( book_id  = master_book_id
+                is_draft = if_abap_behv=>mk-on ).
+    given_persisted_book( ).
+    given_book( book_id  = missing_book_id
+                is_draft = if_abap_behv=>mk-on ).
+
+    when_features_requested( ).
+
+    cl_abap_unit_assert=>assert_equals( exp = 2
+                                        act = lines( feature_result ) ).
+    assert_field_features( key_index = 1
+                           read_only = abap_true ).
+    assert_field_features( key_index = 2
+                           read_only = abap_false ).
+  ENDMETHOD.
+
+  METHOD empty_features.
+    when_features_requested( ).
+
+    cl_abap_unit_assert=>assert_initial( feature_result ).
+    cl_abap_unit_assert=>assert_initial( feature_failed ).
+    cl_abap_unit_assert=>assert_initial( feature_reported ).
+  ENDMETHOD.
+
+  METHOD missing_features.
+    book_keys = VALUE #( ( BookstoreID = master_book_id
+                           BookID      = missing_book_id
+                           %is_draft   = if_abap_behv=>mk-on ) ).
+
+    when_features_requested( ).
+
+    cl_abap_unit_assert=>assert_initial( feature_result ).
+    cl_abap_unit_assert=>assert_equals( exp = 1
+                                        act = lines( feature_failed-book ) ).
+    cl_abap_unit_assert=>assert_equals( exp = book_keys[ 1 ]-%tky
+                                        act = feature_failed-book[ 1 ]-%tky ).
+  ENDMETHOD.
+
+  METHOD given_persisted_book.
+    sql_test_environment->insert_test_data( VALUE persisted_books( ( BookstoreID = book_keys[ 1 ]-BookstoreID
+                                                                     BookID      = book_keys[ 1 ]-BookID ) ) ).
+  ENDMETHOD.
+
+  METHOD when_features_requested.
+    CLEAR: feature_result,
+           feature_failed,
+           feature_reported.
+
+    cut->get_instance_features( EXPORTING keys               = CORRESPONDING #( book_keys )
+                                          requested_features = VALUE #( %field-BookName = if_abap_behv=>mk-on
+                                                                        %field-Author   = if_abap_behv=>mk-on
+                                                                        %field-Language = if_abap_behv=>mk-on )
+                                CHANGING  result             = feature_result
+                                          failed             = feature_failed
+                                          reported           = feature_reported ).
+  ENDMETHOD.
+
+  METHOD assert_field_features.
+    DATA(book_key) = book_keys[ key_index ].
+    cl_abap_unit_assert=>assert_true(
+        act = xsdbool( line_exists( feature_result[ KEY id COMPONENTS %tky = book_key-%tky ] ) ) ).
+    DATA(features) = feature_result[ KEY id COMPONENTS %tky = book_key-%tky ].
+    DATA(expected_control) = COND #( WHEN read_only = abap_true
+                                     THEN if_abap_behv=>fc-f-read_only
+                                     ELSE if_abap_behv=>fc-f-unrestricted ).
+    cl_abap_unit_assert=>assert_equals( exp = expected_control
+                                        act = features-%field-BookName ).
+    cl_abap_unit_assert=>assert_equals( exp = expected_control
+                                        act = features-%field-Author ).
+    cl_abap_unit_assert=>assert_equals( exp = expected_control
+                                        act = features-%field-Language ).
+    cl_abap_unit_assert=>assert_initial( feature_failed ).
+    cl_abap_unit_assert=>assert_initial( feature_reported ).
   ENDMETHOD.
 
   METHOD given_master_details.
@@ -366,6 +905,10 @@ CLASS ltcl_book_master_data IMPLEMENTATION.
     DATA(error) = reported-book[ 2 ].
     cl_abap_unit_assert=>assert_equals( exp = book_keys[ 1 ]-%tky
                                         act = error-%tky ).
+    cl_abap_unit_assert=>assert_equals( exp = book_keys[ 1 ]-BookstoreID
+                                        act = error-%path-Bookstore-BookstoreID ).
+    cl_abap_unit_assert=>assert_equals( exp = book_keys[ 1 ]-%is_draft
+                                        act = error-%path-Bookstore-%is_draft ).
     cl_abap_unit_assert=>assert_equals( exp = 'BOOK_MASTER_DATA'
                                         act = error-%state_area ).
     cl_abap_unit_assert=>assert_equals( exp = if_abap_behv=>mk-off
@@ -379,6 +922,37 @@ CLASS ltcl_book_master_data IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD given_book.
+        IF is_draft = if_abap_behv=>mk-on.
+          MODIFY ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
+            ENTITY Bookstore
+            CREATE FIELDS ( BookstoreName City )
+            WITH VALUE #( ( %cid          = 'STORE'
+             %is_draft     = is_draft
+             BookstoreName = 'Test Store'
+             City          = 'Test City' ) )
+             CREATE BY \_Books FIELDS ( BookID BookName Author Language )
+            WITH VALUE #( ( %cid_ref  = 'STORE'
+             %is_draft = is_draft
+             %target   = VALUE #( ( %cid      = 'BOOK'
+                     %is_draft = is_draft
+                     BookID    = book_id
+                     BookName  = book_name
+                     Author    = author
+                     Language  = language ) ) ) )
+            MAPPED DATA(mapped_draft)
+            FAILED DATA(failed_draft).
+          cl_abap_unit_assert=>assert_initial( failed_draft ).
+          cl_abap_unit_assert=>assert_equals( exp = 1
+                act = lines( mapped_draft-bookstore ) ).
+          cl_abap_unit_assert=>assert_equals( exp = 1
+                act = lines( mapped_draft-book ) ).
+
+          APPEND VALUE #( BookstoreID = mapped_draft-bookstore[ 1 ]-BookstoreID
+           BookID      = mapped_draft-book[ 1 ]-BookID
+           %is_draft   = is_draft ) TO book_keys.
+          RETURN.
+        ENDIF.
+
     MODIFY ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
            ENTITY Bookstore
            CREATE FIELDS ( BookstoreName City )

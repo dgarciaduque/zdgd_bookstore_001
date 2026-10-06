@@ -4,6 +4,8 @@
 
 @Metadata.allowExtensions: true
 
+@Search.searchable: true
+
 define root view entity ZDGD_C_BookMasterData
   provider contract transactional_query
   as projection on ZDGD_I_BookMasterData
@@ -11,7 +13,10 @@ define root view entity ZDGD_C_BookMasterData
 {
   key BookID,
 
+      @Search.defaultSearchElement: true
+      @Search.fuzzinessThreshold: 0.8
       BookName,
+
       Author,
       Language
 }
