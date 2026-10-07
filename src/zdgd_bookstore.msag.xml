@@ -14,6 +14,12 @@
      <MSGNR>001</MSGNR>
      <TEXT>Select a book that exists in active master data.</TEXT>
     </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZDGD_BOOKSTORE</ARBGB>
+     <MSGNR>002</MSGNR>
+     <TEXT>This book already exists in this bookstore.</TEXT>
+    </T100>
    </T100>
   </asx:values>
  </asx:abap>

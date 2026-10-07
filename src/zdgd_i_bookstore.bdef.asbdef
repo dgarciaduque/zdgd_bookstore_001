@@ -17,7 +17,9 @@ authorization master ( instance )
   draft action Discard;
   draft action Activate optimized;
   draft action Resume;
-  draft determine action Prepare { validation Book~validate_book_master_data; }
+  draft determine action Prepare
+  { validation Book~validate_book_master_data;
+    validation Book~validate_book_already_exists; }
 
   field ( readonly, numbering : managed ) BookstoreID;
   field ( mandatory : create ) BookstoreName;
@@ -38,11 +40,12 @@ authorization dependent by _Bookstore
 
   field ( readonly : update ) BookID;
   field ( readonly ) BookstoreID;
-  field ( mandatory : create, features : instance ) BookName;
-  field ( mandatory : create, features : instance ) Author;
-  field ( mandatory : create, features : instance ) Language;
+  field ( mandatory : create, readonly : update ) BookName;
+  field ( mandatory : create, readonly : update ) Author;
+  field ( mandatory : create, readonly : update ) Language;
 
-  validation validate_book_master_data on save { create; update; }
+  validation validate_book_master_data on save { create; }
+  validation validate_book_already_exists on save { create; }
 
   association _Bookstore { with draft; }
 }
