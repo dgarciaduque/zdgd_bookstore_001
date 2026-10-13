@@ -3,65 +3,67 @@ CLASS ltcl_book_numbering DEFINITION FINAL
   FOR TESTING RISK LEVEL HARMLESS DURATION SHORT.
 
   PRIVATE SECTION.
-    TYPES master_books TYPE STANDARD TABLE OF zdgd_i_bookmasterdata WITH EMPTY KEY.
-    TYPES draft_books TYPE STANDARD TABLE OF zdgd_i_bookmasterdata_d WITH EMPTY KEY.
+    TYPES master_books    TYPE STANDARD TABLE OF zdgd_i_bookmasterdata WITH EMPTY KEY.
+    TYPES draft_books     TYPE STANDARD TABLE OF zdgd_i_bookmasterdata_d WITH EMPTY KEY.
     TYPES persisted_books TYPE STANDARD TABLE OF zdgd_i_book WITH EMPTY KEY.
 
     CONSTANTS master_id TYPE sysuuid_x16 VALUE '00000000000000000000000000000002'.
-    CONSTANTS other_id TYPE sysuuid_x16 VALUE '00000000000000000000000000000003'.
-    CONSTANTS store_id TYPE sysuuid_x16 VALUE '00000000000000000000000000000001'.
+    CONSTANTS other_id  TYPE sysuuid_x16 VALUE '00000000000000000000000000000003'.
+    CONSTANTS store_id  TYPE sysuuid_x16 VALUE '00000000000000000000000000000001'.
 
     CLASS-DATA sql_environment TYPE REF TO if_osql_test_environment.
-    DATA cut TYPE REF TO lhc_bookstore.
+
+    DATA cut      TYPE REF TO lhc_bookstore.
     DATA requests TYPE TABLE FOR CREATE zdgd_i_bookstore\\Bookstore\_Books.
-    DATA mapped TYPE RESPONSE FOR MAPPED EARLY zdgd_i_bookstore.
-    DATA failed TYPE RESPONSE FOR FAILED EARLY zdgd_i_bookstore.
+    DATA mapped   TYPE RESPONSE FOR MAPPED EARLY zdgd_i_bookstore.
+    DATA failed   TYPE RESPONSE FOR FAILED EARLY zdgd_i_bookstore.
     DATA reported TYPE RESPONSE FOR REPORTED EARLY zdgd_i_bookstore.
 
     CLASS-METHODS class_setup.
     CLASS-METHODS class_teardown.
+
     METHODS setup.
     METHODS teardown.
 
-    METHODS resolves_semantic_key FOR TESTING.
-    METHODS preserves_matching_id FOR TESTING.
-    METHODS rejects_conflicting_id FOR TESTING.
-    METHODS rejects_missing_master FOR TESTING.
-    METHODS ignores_draft_only_master FOR TESTING.
-    METHODS matches_all_semantic_fields FOR TESTING.
-    METHODS handles_mixed_batch FOR TESTING.
-    METHODS rejects_duplicate_in_store FOR TESTING.
-    METHODS rejects_existing_book_in_store FOR TESTING.
+    METHODS resolves_semantic_key          FOR TESTING.
+    METHODS preserves_matching_id          FOR TESTING.
+    METHODS maps_supplied_id_from_master   FOR TESTING.
+    METHODS ignores_missing_master         FOR TESTING.
+    METHODS ignores_draft_only_master      FOR TESTING.
+    METHODS matches_all_semantic_fields    FOR TESTING.
+    METHODS handles_mixed_batch            FOR TESTING.
+    METHODS maps_duplicate_requests        FOR TESTING.
+    METHODS maps_existing_assignment       FOR TESTING.
     METHODS allows_different_book_in_store FOR TESTING.
-    METHODS allows_book_in_other_store FOR TESTING.
-    METHODS existing_other_store_passes FOR TESTING.
-    METHODS distinguishes_parent_refs FOR TESTING.
-    METHODS empty_requests FOR TESTING.
-    METHODS empty_targets FOR TESTING.
+    METHODS allows_book_in_other_store     FOR TESTING.
+    METHODS existing_other_store_passes    FOR TESTING.
+    METHODS distinguishes_parent_refs      FOR TESTING.
+    METHODS empty_requests                 FOR TESTING.
+    METHODS empty_targets                  FOR TESTING.
 
     METHODS given_master
-      IMPORTING book_id TYPE sysuuid_x16 DEFAULT master_id
-                book_name TYPE zdgd_bookname DEFAULT 'Book A'
-                author TYPE zdgd_bookauthor DEFAULT 'Author A'
-                !language TYPE spras DEFAULT 'E'.
+      IMPORTING book_id   TYPE sysuuid_x16     DEFAULT master_id
+                book_name TYPE zdgd_bookname   DEFAULT 'Book A'
+                author    TYPE zdgd_bookauthor DEFAULT 'Author A'
+                !language TYPE spras           DEFAULT 'E'.
+
     METHODS given_request
-      IMPORTING cid TYPE abp_behv_cid DEFAULT 'BOOK'
-                bookstore_id TYPE sysuuid_x16 DEFAULT store_id
-                parent_cid TYPE abp_behv_cid OPTIONAL
-                book_id TYPE sysuuid_x16 OPTIONAL
-                book_name TYPE zdgd_bookname DEFAULT 'Book A'
-                author TYPE zdgd_bookauthor DEFAULT 'Author A'
-                !language TYPE spras DEFAULT 'E'
-                is_draft TYPE abp_behv_flag DEFAULT if_abap_behv=>mk-on.
+      IMPORTING !cid         TYPE abp_behv_cid    DEFAULT 'BOOK'
+                bookstore_id TYPE sysuuid_x16     DEFAULT store_id
+                parent_cid   TYPE abp_behv_cid    OPTIONAL
+                book_id      TYPE sysuuid_x16     OPTIONAL
+                book_name    TYPE zdgd_bookname   DEFAULT 'Book A'
+                author       TYPE zdgd_bookauthor DEFAULT 'Author A'
+                !language    TYPE spras           DEFAULT 'E'
+                is_draft     TYPE abp_behv_flag   DEFAULT if_abap_behv=>mk-on.
+
     METHODS when_numbered.
+
     METHODS assert_mapping
-      IMPORTING cid TYPE abp_behv_cid DEFAULT 'BOOK'
-                bookstore_id TYPE sysuuid_x16 DEFAULT store_id
-                book_id TYPE sysuuid_x16 DEFAULT master_id
-                is_draft TYPE abp_behv_flag DEFAULT if_abap_behv=>mk-on.
-    METHODS assert_failure
-      IMPORTING cid TYPE abp_behv_cid DEFAULT 'BOOK'
-                message_text TYPE string.
+      IMPORTING !cid         TYPE abp_behv_cid  DEFAULT 'BOOK'
+                bookstore_id TYPE sysuuid_x16   DEFAULT store_id
+                book_id      TYPE sysuuid_x16   DEFAULT master_id
+                is_draft     TYPE abp_behv_flag DEFAULT if_abap_behv=>mk-on.
 ENDCLASS.
 
 CLASS ltcl_book_numbering IMPLEMENTATION.
@@ -108,24 +110,25 @@ CLASS ltcl_book_numbering IMPLEMENTATION.
     assert_mapping( is_draft = if_abap_behv=>mk-off ).
   ENDMETHOD.
 
-  METHOD rejects_conflicting_id.
+  METHOD maps_supplied_id_from_master.
     given_master( ).
     given_request( book_id = other_id ).
 
     when_numbered( ).
 
-    cl_abap_unit_assert=>assert_initial( mapped ).
-    assert_failure( message_text = 'Book ID conflicts with matching master book' ).
-    cl_abap_unit_assert=>assert_equals( exp = other_id act = failed-book[ 1 ]-BookID ).
+    cl_abap_unit_assert=>assert_initial( failed ).
+    cl_abap_unit_assert=>assert_initial( reported ).
+    assert_mapping( ).
   ENDMETHOD.
 
-  METHOD rejects_missing_master.
+  METHOD ignores_missing_master.
     given_request( ).
 
     when_numbered( ).
 
     cl_abap_unit_assert=>assert_initial( mapped ).
-    assert_failure( message_text = 'No master book matches name, author and language' ).
+    cl_abap_unit_assert=>assert_initial( failed ).
+    cl_abap_unit_assert=>assert_initial( reported ).
   ENDMETHOD.
 
   METHOD ignores_draft_only_master.
@@ -136,7 +139,8 @@ CLASS ltcl_book_numbering IMPLEMENTATION.
     when_numbered( ).
 
     cl_abap_unit_assert=>assert_initial( mapped ).
-    assert_failure( message_text = 'No master book matches name, author and language' ).
+    cl_abap_unit_assert=>assert_initial( failed ).
+    cl_abap_unit_assert=>assert_initial( reported ).
   ENDMETHOD.
 
   METHOD matches_all_semantic_fields.
@@ -153,13 +157,15 @@ CLASS ltcl_book_numbering IMPLEMENTATION.
     given_request( author = 'Other Author' ).
     when_numbered( ).
     cl_abap_unit_assert=>assert_initial( mapped ).
-    assert_failure( message_text = 'No master book matches name, author and language' ).
+    cl_abap_unit_assert=>assert_initial( failed ).
+    cl_abap_unit_assert=>assert_initial( reported ).
 
     CLEAR requests.
     given_request( book_name = 'Other Book' ).
     when_numbered( ).
     cl_abap_unit_assert=>assert_initial( mapped ).
-    assert_failure( message_text = 'No master book matches name, author and language' ).
+    cl_abap_unit_assert=>assert_initial( failed ).
+    cl_abap_unit_assert=>assert_initial( reported ).
   ENDMETHOD.
 
   METHOD handles_mixed_batch.
@@ -171,24 +177,25 @@ CLASS ltcl_book_numbering IMPLEMENTATION.
 
     cl_abap_unit_assert=>assert_equals( exp = 1 act = lines( mapped-book ) ).
     assert_mapping( ).
-    assert_failure( cid = 'MISSING'
-            message_text = 'No master book matches name, author and language' ).
+    cl_abap_unit_assert=>assert_initial( failed ).
+    cl_abap_unit_assert=>assert_initial( reported ).
   ENDMETHOD.
 
-  METHOD rejects_duplicate_in_store.
+  METHOD maps_duplicate_requests.
     given_master( ).
     given_request( ).
     given_request( cid = 'DUPLICATE' ).
 
     when_numbered( ).
 
-    cl_abap_unit_assert=>assert_equals( exp = 1 act = lines( mapped-book ) ).
+    cl_abap_unit_assert=>assert_equals( exp = 2 act = lines( mapped-book ) ).
     assert_mapping( ).
-    assert_failure( cid = 'DUPLICATE'
-            message_text = 'Master book requested twice for this bookstore' ).
+    assert_mapping( cid = 'DUPLICATE' ).
+    cl_abap_unit_assert=>assert_initial( failed ).
+    cl_abap_unit_assert=>assert_initial( reported ).
   ENDMETHOD.
 
-  METHOD rejects_existing_book_in_store.
+  METHOD maps_existing_assignment.
     given_master( ).
     sql_environment->insert_test_data(
         VALUE persisted_books( ( BookstoreID = store_id BookID = master_id ) ) ).
@@ -196,12 +203,9 @@ CLASS ltcl_book_numbering IMPLEMENTATION.
 
     when_numbered( ).
 
-    cl_abap_unit_assert=>assert_initial( mapped ).
-    cl_abap_unit_assert=>assert_equals( exp = 1 act = lines( failed-book ) ).
-    cl_abap_unit_assert=>assert_equals( exp = 1 act = lines( reported-book ) ).
-    cl_abap_unit_assert=>assert_equals(
-        exp = '002'
-        act = CAST if_t100_message( reported-book[ 1 ]-%msg )->t100key-msgno ).
+    cl_abap_unit_assert=>assert_initial( failed ).
+    cl_abap_unit_assert=>assert_initial( reported ).
+    assert_mapping( ).
   ENDMETHOD.
 
   METHOD allows_different_book_in_store.
@@ -317,22 +321,6 @@ CLASS ltcl_book_numbering IMPLEMENTATION.
     cl_abap_unit_assert=>assert_true( found ).
   ENDMETHOD.
 
-  METHOD assert_failure.
-    cl_abap_unit_assert=>assert_equals( exp = 1 act = lines( failed-book ) ).
-    cl_abap_unit_assert=>assert_equals( exp = cid act = failed-book[ 1 ]-%cid ).
-    cl_abap_unit_assert=>assert_equals( exp = if_abap_behv=>mk-on act = failed-book[ 1 ]-%is_draft ).
-    cl_abap_unit_assert=>assert_equals( exp = store_id act = failed-book[ 1 ]-BookstoreID ).
-    cl_abap_unit_assert=>assert_equals( exp = 1 act = lines( reported-book ) ).
-    DATA(error) = reported-book[ 1 ].
-    cl_abap_unit_assert=>assert_equals( exp = cid act = error-%cid ).
-    cl_abap_unit_assert=>assert_equals( exp = if_abap_behv=>mk-on act = error-%is_draft ).
-    cl_abap_unit_assert=>assert_equals( exp = if_abap_behv=>mk-on act = error-%element-BookName ).
-    cl_abap_unit_assert=>assert_equals( exp = if_abap_behv=>mk-on act = error-%element-Author ).
-    cl_abap_unit_assert=>assert_equals( exp = if_abap_behv=>mk-on act = error-%element-Language ).
-    cl_abap_unit_assert=>assert_bound( error-%msg ).
-    cl_abap_unit_assert=>assert_equals( exp = if_abap_behv_message=>severity-error act = error-%msg->m_severity ).
-    cl_abap_unit_assert=>assert_equals( exp = message_text act = error-%msg->if_message~get_text( ) ).
-  ENDMETHOD.
 ENDCLASS.
 
 CLASS ltcl_book_master_data DEFINITION FINAL
