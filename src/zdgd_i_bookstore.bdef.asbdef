@@ -18,14 +18,14 @@ authorization master ( instance )
   draft action Activate optimized;
   draft action Resume;
   draft determine action Prepare
-  { validation Book~validate_book_master_data;
-    validation Book~validate_book_already_exists; }
+  { validation Book~exists_in_master_data;
+    validation Book~no_duplicates_in_bookstore; }
 
   field ( readonly, numbering : managed ) BookstoreID;
   field ( mandatory : create ) BookstoreName;
   field ( mandatory : create ) City;
 
-  association _Books { create; with draft; }
+  association _Books { create ( precheck ); with draft; }
 }
 
 define behavior for ZDGD_I_Book alias Book
@@ -44,8 +44,8 @@ authorization dependent by _Bookstore
   field ( mandatory : create, readonly : update ) Author;
   field ( mandatory : create, readonly : update ) Language;
 
-  validation validate_book_master_data on save { create; }
-  validation validate_book_already_exists on save { create; }
+  validation exists_in_master_data on save { create; }
+  validation no_duplicates_in_bookstore on save { create; }
 
   association _Bookstore { with draft; }
 }

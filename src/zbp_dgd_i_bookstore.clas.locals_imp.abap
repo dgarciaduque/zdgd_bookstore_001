@@ -3,6 +3,27 @@
 *"* declarations
 CLASS ltcl_book_numbering DEFINITION DEFERRED FOR TESTING.
 
+INTERFACE lif_book_validation.
+  TYPES: BEGIN OF book_key,
+           BookstoreID TYPE zdgd_i_book-BookstoreID,
+           BookID      TYPE zdgd_i_book-BookID,
+         END OF book_key.
+  TYPES book_keys TYPE SORTED TABLE OF book_key WITH UNIQUE KEY BookstoreID BookID.
+
+  METHODS find_duplicates_in_bookstore IMPORTING books TYPE book_keys
+                                       RETURNING VALUE(duplicates) TYPE book_keys.
+ENDINTERFACE.
+
+CLASS lcl_book_validation DEFINITION CREATE PRIVATE.
+  PUBLIC SECTION.
+    INTERFACES lif_book_validation.
+    CLASS-METHODS get_instance
+      RETURNING VALUE(result) TYPE REF TO lif_book_validation.
+
+  PRIVATE SECTION.
+    CLASS-DATA self TYPE REF TO lcl_book_validation.
+ENDCLASS.
+
 CLASS lhc_bookstore DEFINITION
   INHERITING FROM cl_abap_behavior_handler
   FRIENDS ltcl_book_numbering.
@@ -12,6 +33,8 @@ CLASS lhc_bookstore DEFINITION
       keys REQUEST requested_authorizations FOR Bookstore RESULT result.
     METHODS get_global_authorizations FOR GLOBAL AUTHORIZATION
       REQUEST requested_authorizations FOR bookstore RESULT result.
+    METHODS precheck_cba_books FOR PRECHECK
+      entities FOR CREATE bookstore\_books.
     METHODS earlynumbering_cba_books FOR NUMBERING
       entities FOR CREATE bookstore\_books.
 
@@ -79,6 +102,10 @@ CLASS lhc_bookstore IMPLEMENTATION.
                              BookID      = master_data_row-BookID ) ).
     DELETE mapped-book WHERE BookID IS INITIAL.
   ENDMETHOD.
+
+  METHOD precheck_cba_Books.
+  ENDMETHOD.
+
 ENDCLASS.
 
 CLASS ltcl_book_master_data DEFINITION DEFERRED FOR TESTING.
@@ -88,19 +115,19 @@ CLASS lhc_book DEFINITION
   FRIENDS ltcl_book_master_data.
 
   PRIVATE SECTION.
-    CONSTANTS state_area_master_data TYPE string VALUE 'BOOK_MASTER_DATA'.
+    CONSTANTS state_area_master_data    TYPE string VALUE 'BOOK_MASTER_DATA'.
     CONSTANTS state_area_duplicate_book TYPE string VALUE 'BOOK_ALREADY_EXISTS'.
 
-    METHODS validate_book_master_data FOR VALIDATE ON SAVE
-      keys FOR Book~validate_book_master_data.
-    METHODS validate_book_already_exists FOR VALIDATE ON SAVE
-      keys FOR Book~validate_book_already_exists.
+    METHODS exists_in_master_data FOR VALIDATE ON SAVE
+      keys FOR Book~exists_in_master_data.
+    METHODS no_duplicates_in_bookstore FOR VALIDATE ON SAVE
+      keys FOR Book~no_duplicates_in_bookstore.
 
 ENDCLASS.
 
 
 CLASS lhc_book IMPLEMENTATION.
-  METHOD validate_book_master_data.
+  METHOD exists_in_master_data.
     DATA master_books TYPE HASHED TABLE OF zdgd_i_bookmasterdata WITH UNIQUE KEY BookID.
 
     READ ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
@@ -162,12 +189,7 @@ CLASS lhc_book IMPLEMENTATION.
     ENDLOOP.
   ENDMETHOD.
 
-  METHOD validate_book_already_exists.
-    TYPES: BEGIN OF existing_assignment,
-             BookstoreID TYPE sysuuid_x16,
-             BookID      TYPE sysuuid_x16,
-           END OF existing_assignment.
-
+  METHOD no_duplicates_in_bookstore.
     READ ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
          ENTITY Book
          FIELDS ( BookstoreID BookID )
@@ -178,24 +200,17 @@ CLASS lhc_book IMPLEMENTATION.
       RETURN.
     ENDIF.
 
-    DATA existing_assignments TYPE SORTED TABLE OF existing_assignment
-                   WITH NON-UNIQUE KEY BookstoreID BookID.
-
-    SELECT
-      FROM @books AS requested
-             JOIN
-               zdgd_i_book WITH PRIVILEGED ACCESS AS existing ON  requested~BookstoreID = existing~BookstoreID
-                                                              AND requested~BookID      = existing~BookID
-      FIELDS DISTINCT existing~BookstoreID,
-                      existing~BookID
-      INTO TABLE @existing_assignments.
+    DATA(duplicate_books) = lcl_book_validation=>get_instance( )->find_duplicates_in_bookstore(
+                                books = VALUE #( FOR candidate IN books
+                                                 ( BookstoreID = candidate-BookstoreID
+                                                   BookID      = candidate-BookID ) ) ).
 
     LOOP AT books INTO DATA(book).
       APPEND VALUE #( %tky        = book-%tky
                       %state_area = state_area_duplicate_book ) TO reported-book.
 
-      IF NOT line_exists( existing_assignments[ BookstoreID = book-BookstoreID
-                                                BookID      = book-BookID ] ).
+      IF NOT line_exists( duplicate_books[ BookstoreID = book-BookstoreID
+                                           BookID      = book-BookID ] ).
         CONTINUE.
       ENDIF.
 
@@ -211,3 +226,30 @@ CLASS lhc_book IMPLEMENTATION.
   ENDMETHOD.
 
 ENDCLASS.
+
+
+CLASS lcl_book_validation IMPLEMENTATION.
+  METHOD lif_book_validation~find_duplicates_in_bookstore.
+    IF books IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    SELECT
+      FROM @books AS requested
+             JOIN
+               zdgd_i_book WITH PRIVILEGED ACCESS AS existing ON  requested~BookstoreID = existing~BookstoreID
+                                                              AND requested~BookID      = existing~BookID
+      FIELDS DISTINCT existing~BookstoreID,
+                      existing~BookID
+      INTO TABLE @duplicates.
+  ENDMETHOD.
+
+  METHOD get_instance.
+    IF self IS NOT BOUND.
+      self = NEW #( ).
+    ENDIF.
+    result = self.
+  ENDMETHOD.
+
+ENDCLASS.
+

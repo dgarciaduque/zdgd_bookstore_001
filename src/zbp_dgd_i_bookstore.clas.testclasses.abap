@@ -366,6 +366,7 @@ CLASS ltcl_book_master_data DEFINITION FINAL
     METHODS corrected_details_clear_msg    FOR TESTING.
     METHODS mixed_details_batch            FOR TESTING.
     METHODS book_duplicate_fails           FOR TESTING.
+    METHODS mixed_duplicate_batch          FOR TESTING.
     METHODS book_other_store_passes        FOR TESTING.
     METHODS different_book_passes FOR TESTING.
     METHODS draft_details_mismatch         FOR TESTING.
@@ -811,6 +812,24 @@ CLASS ltcl_book_master_data IMPLEMENTATION.
                                         act = CAST if_t100_message( error-%msg )->t100key-msgno ).
   ENDMETHOD.
 
+  METHOD mixed_duplicate_batch.
+    given_master_details( ).
+    given_book( master_book_id ).
+    given_book( master_book_id ).
+    sql_test_environment->insert_test_data(
+        VALUE persisted_books( ( BookstoreID = book_keys[ 1 ]-BookstoreID
+                                 BookID      = master_book_id ) ) ).
+
+    when_duplicate_checked( ).
+
+    cl_abap_unit_assert=>assert_equals( exp = 1
+                                        act = lines( failed-book ) ).
+    cl_abap_unit_assert=>assert_equals( exp = book_keys[ 1 ]-%tky
+                                        act = failed-book[ 1 ]-%tky ).
+    cl_abap_unit_assert=>assert_equals( exp = 3
+                                        act = lines( reported-book ) ).
+  ENDMETHOD.
+
   METHOD book_other_store_passes.
     given_master_details( ).
     given_book( master_book_id ).
@@ -929,18 +948,18 @@ CLASS ltcl_book_master_data IMPLEMENTATION.
   METHOD when_validated.
     CLEAR: failed,
            reported.
-    cut->validate_book_master_data( EXPORTING keys     = CORRESPONDING #( book_keys )
-                                    CHANGING  failed   = failed
-                                              reported = reported ).
+    cut->exists_in_master_data( EXPORTING keys     = CORRESPONDING #( book_keys )
+                                CHANGING  failed   = failed
+                                          reported = reported ).
   ENDMETHOD.
 
-      METHOD when_duplicate_checked.
-        CLEAR: failed,
-          reported.
-        cut->validate_book_already_exists( EXPORTING keys     = CORRESPONDING #( book_keys )
-                   CHANGING  failed   = failed
-                   reported = reported ).
-      ENDMETHOD.
+  METHOD when_duplicate_checked.
+    CLEAR: failed,
+           reported.
+    cut->no_duplicates_in_bookstore( EXPORTING keys     = CORRESPONDING #( book_keys )
+                                     CHANGING  failed   = failed
+                                               reported = reported ).
+  ENDMETHOD.
 
   METHOD count_errors.
     result = REDUCE #( INIT count = 0
