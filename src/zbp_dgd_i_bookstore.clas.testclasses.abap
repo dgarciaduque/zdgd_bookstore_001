@@ -26,10 +26,19 @@ CLASS ltcl_book_numbering DEFINITION FINAL
     METHODS teardown.
 
     METHODS resolves_semantic_key          FOR TESTING.
+    METHODS precheck_request_duplicates FOR TESTING.
+    METHODS precheck_persisted_duplicate FOR TESTING.
+    METHODS precheck_missing_master FOR TESTING.
+    METHODS precheck_active_ignored FOR TESTING.
+    METHODS helper_request_duplicates FOR TESTING.
+    METHODS helper_parent_refs_distinct FOR TESTING.
+    METHODS helper_empty_request FOR TESTING.
     METHODS preserves_matching_id          FOR TESTING.
     METHODS maps_supplied_id_from_master   FOR TESTING.
-    METHODS ignores_missing_master         FOR TESTING.
-    METHODS ignores_draft_only_master      FOR TESTING.
+    METHODS rejects_missing_master         FOR TESTING.
+    METHODS rejects_draft_only_master      FOR TESTING.
+    METHODS active_failure_keeps_id        FOR TESTING.
+    METHODS preserves_existing_responses   FOR TESTING.
     METHODS matches_all_semantic_fields    FOR TESTING.
     METHODS handles_mixed_batch            FOR TESTING.
     METHODS maps_duplicate_requests        FOR TESTING.
@@ -63,6 +72,11 @@ CLASS ltcl_book_numbering DEFINITION FINAL
       IMPORTING !cid         TYPE abp_behv_cid  DEFAULT 'BOOK'
                 bookstore_id TYPE sysuuid_x16   DEFAULT store_id
                 book_id      TYPE sysuuid_x16   DEFAULT master_id
+                is_draft     TYPE abp_behv_flag DEFAULT if_abap_behv=>mk-on.
+
+    METHODS assert_numbering_failure
+      IMPORTING !cid         TYPE abp_behv_cid DEFAULT 'BOOK'
+                book_id      TYPE sysuuid_x16 OPTIONAL
                 is_draft     TYPE abp_behv_flag DEFAULT if_abap_behv=>mk-on.
 ENDCLASS.
 
@@ -99,6 +113,94 @@ CLASS ltcl_book_numbering IMPLEMENTATION.
     assert_mapping( ).
   ENDMETHOD.
 
+  METHOD precheck_request_duplicates.
+    given_master( ).
+    given_request( ).
+    given_request( cid = 'DUPLICATE' ).
+
+    cut->precheck_cba_books( EXPORTING entities = requests
+                             CHANGING  failed   = failed
+                                       reported = reported ).
+
+    cl_abap_unit_assert=>assert_equals( exp = 2
+                                        act = lines( failed-book ) ).
+    cl_abap_unit_assert=>assert_equals( exp = 2
+                                        act = lines( reported-book ) ).
+    LOOP AT reported-book INTO DATA(error).
+      cl_abap_unit_assert=>assert_true( xsdbool( error-%msg IS INSTANCE OF zdgd_bookstore_exception ) ).
+      cl_abap_unit_assert=>assert_equals( exp = zdgd_bookstore_exception=>request_contains_duplicates
+                                          act = CAST if_t100_message( error-%msg )->t100key ).
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD precheck_persisted_duplicate.
+    given_master( ).
+    sql_environment->insert_test_data(
+        VALUE persisted_books( ( BookstoreID = store_id BookID = master_id ) ) ).
+    given_request( ).
+
+    cut->precheck_cba_books( EXPORTING entities = requests
+                           CHANGING failed = failed reported = reported ).
+
+    cl_abap_unit_assert=>assert_equals( exp = 1 act = lines( failed-book ) ).
+    cl_abap_unit_assert=>assert_equals(
+        exp = zdgd_bookstore_exception=>book_already_exists
+        act = CAST if_t100_message( reported-book[ 1 ]-%msg )->t100key ).
+  ENDMETHOD.
+
+  METHOD precheck_missing_master.
+    given_request( ).
+
+    cut->precheck_cba_books( EXPORTING entities = requests
+                             CHANGING  failed   = failed
+                                       reported = reported ).
+
+    cl_abap_unit_assert=>assert_equals( exp = 1
+                                        act = lines( failed-book ) ).
+    cl_abap_unit_assert=>assert_equals( exp = zdgd_bookstore_exception=>book_not_in_master_data
+                                        act = CAST if_t100_message( reported-book[ 1 ]-%msg )->t100key ).
+  ENDMETHOD.
+
+  METHOD precheck_active_ignored.
+    given_master( ).
+    sql_environment->insert_test_data(
+        VALUE persisted_books( ( BookstoreID = store_id BookID = master_id ) ) ).
+    given_request( is_draft = if_abap_behv=>mk-off ).
+
+    cut->precheck_cba_books( EXPORTING entities = requests
+                           CHANGING failed = failed reported = reported ).
+
+    cl_abap_unit_assert=>assert_initial( failed-book ).
+    cl_abap_unit_assert=>assert_initial( reported-book ).
+  ENDMETHOD.
+
+  METHOD helper_request_duplicates.
+    DATA(duplicates) = lcl_book_validation=>get_instance( )->find_request_duplicates(
+      VALUE lif_book_validation=>request_candidates(
+        ( cid = 'FIRST' BookstoreID = store_id BookID = master_id )
+        ( cid = 'SECOND' BookstoreID = store_id BookID = master_id )
+        ( cid = 'OTHER_STORE' BookstoreID = other_id BookID = master_id ) ) ).
+
+    cl_abap_unit_assert=>assert_equals( exp = 2 act = lines( duplicates ) ).
+    cl_abap_unit_assert=>assert_true( xsdbool( line_exists( duplicates[ cid = 'FIRST' ] ) ) ).
+    cl_abap_unit_assert=>assert_true( xsdbool( line_exists( duplicates[ cid = 'SECOND' ] ) ) ).
+  ENDMETHOD.
+
+  METHOD helper_parent_refs_distinct.
+    DATA(duplicates) = lcl_book_validation=>get_instance( )->find_request_duplicates(
+      VALUE lif_book_validation=>request_candidates(
+        ( cid = 'STORE_A_BOOK' parent_cid = 'STORE_A' BookID = master_id )
+        ( cid = 'STORE_B_BOOK' parent_cid = 'STORE_B' BookID = master_id ) ) ).
+
+    cl_abap_unit_assert=>assert_initial( duplicates ).
+  ENDMETHOD.
+
+  METHOD helper_empty_request.
+    DATA(duplicates) = lcl_book_validation=>get_instance( )->find_request_duplicates( VALUE #( ) ).
+
+    cl_abap_unit_assert=>assert_initial( duplicates ).
+  ENDMETHOD.
+
   METHOD preserves_matching_id.
     given_master( ).
     given_request( book_id = master_id is_draft = if_abap_behv=>mk-off ).
@@ -121,17 +223,16 @@ CLASS ltcl_book_numbering IMPLEMENTATION.
     assert_mapping( ).
   ENDMETHOD.
 
-  METHOD ignores_missing_master.
+  METHOD rejects_missing_master.
     given_request( ).
 
     when_numbered( ).
 
     cl_abap_unit_assert=>assert_initial( mapped ).
-    cl_abap_unit_assert=>assert_initial( failed ).
-    cl_abap_unit_assert=>assert_initial( reported ).
+    assert_numbering_failure( ).
   ENDMETHOD.
 
-  METHOD ignores_draft_only_master.
+  METHOD rejects_draft_only_master.
     sql_environment->insert_test_data(
         VALUE draft_books( ( BookID = master_id BookName = 'Book A' Author = 'Author A' Language = 'E' ) ) ).
     given_request( ).
@@ -139,8 +240,35 @@ CLASS ltcl_book_numbering IMPLEMENTATION.
     when_numbered( ).
 
     cl_abap_unit_assert=>assert_initial( mapped ).
-    cl_abap_unit_assert=>assert_initial( failed ).
-    cl_abap_unit_assert=>assert_initial( reported ).
+    assert_numbering_failure( ).
+  ENDMETHOD.
+
+  METHOD active_failure_keeps_id.
+    given_request( book_id  = other_id
+                   is_draft = if_abap_behv=>mk-off ).
+
+    when_numbered( ).
+
+    cl_abap_unit_assert=>assert_initial( mapped ).
+    assert_numbering_failure( book_id  = other_id
+                              is_draft = if_abap_behv=>mk-off ).
+  ENDMETHOD.
+
+  METHOD preserves_existing_responses.
+    given_master( ).
+    given_request( ).
+    mapped-book = VALUE #( ( %cid = 'PREVIOUS' BookstoreID = store_id BookID = other_id ) ).
+    failed-book = VALUE #( ( %cid = 'FAILED' ) ).
+    reported-book = VALUE #( ( %cid = 'REPORTED' ) ).
+
+    cut->earlynumbering_cba_books( EXPORTING entities = requests
+                                  CHANGING mapped = mapped failed = failed reported = reported ).
+
+    cl_abap_unit_assert=>assert_equals( exp = 2 act = lines( mapped-book ) ).
+    assert_mapping( cid = 'PREVIOUS' book_id = other_id is_draft = if_abap_behv=>mk-off ).
+    assert_mapping( ).
+    cl_abap_unit_assert=>assert_equals( exp = 'FAILED' act = failed-book[ 1 ]-%cid ).
+    cl_abap_unit_assert=>assert_equals( exp = 'REPORTED' act = reported-book[ 1 ]-%cid ).
   ENDMETHOD.
 
   METHOD matches_all_semantic_fields.
@@ -157,15 +285,13 @@ CLASS ltcl_book_numbering IMPLEMENTATION.
     given_request( author = 'Other Author' ).
     when_numbered( ).
     cl_abap_unit_assert=>assert_initial( mapped ).
-    cl_abap_unit_assert=>assert_initial( failed ).
-    cl_abap_unit_assert=>assert_initial( reported ).
+    assert_numbering_failure( ).
 
     CLEAR requests.
     given_request( book_name = 'Other Book' ).
     when_numbered( ).
     cl_abap_unit_assert=>assert_initial( mapped ).
-    cl_abap_unit_assert=>assert_initial( failed ).
-    cl_abap_unit_assert=>assert_initial( reported ).
+    assert_numbering_failure( ).
   ENDMETHOD.
 
   METHOD handles_mixed_batch.
@@ -177,8 +303,7 @@ CLASS ltcl_book_numbering IMPLEMENTATION.
 
     cl_abap_unit_assert=>assert_equals( exp = 1 act = lines( mapped-book ) ).
     assert_mapping( ).
-    cl_abap_unit_assert=>assert_initial( failed ).
-    cl_abap_unit_assert=>assert_initial( reported ).
+    assert_numbering_failure( cid = 'MISSING' ).
   ENDMETHOD.
 
   METHOD maps_duplicate_requests.
@@ -321,6 +446,31 @@ CLASS ltcl_book_numbering IMPLEMENTATION.
     cl_abap_unit_assert=>assert_true( found ).
   ENDMETHOD.
 
+  METHOD assert_numbering_failure.
+    cl_abap_unit_assert=>assert_equals( exp = 1 act = lines( failed-book ) ).
+    DATA(failure) = failed-book[ 1 ].
+    cl_abap_unit_assert=>assert_equals( exp = cid act = failure-%cid ).
+    cl_abap_unit_assert=>assert_equals( exp = store_id act = failure-BookstoreID ).
+    cl_abap_unit_assert=>assert_equals( exp = book_id act = failure-BookID ).
+    cl_abap_unit_assert=>assert_equals( exp = is_draft act = failure-%is_draft ).
+    cl_abap_unit_assert=>assert_equals( exp = if_abap_behv=>cause-unspecific act = failure-%fail-cause ).
+    cl_abap_unit_assert=>assert_equals( exp = 1 act = lines( reported-book ) ).
+    DATA(error) = reported-book[ 1 ].
+    cl_abap_unit_assert=>assert_equals( exp = cid act = error-%cid ).
+    cl_abap_unit_assert=>assert_equals( exp = store_id act = error-BookstoreID ).
+    cl_abap_unit_assert=>assert_equals( exp = book_id act = error-BookID ).
+    cl_abap_unit_assert=>assert_equals( exp = is_draft act = error-%is_draft ).
+    cl_abap_unit_assert=>assert_equals( exp = if_abap_behv=>mk-on act = error-%element-BookName ).
+    cl_abap_unit_assert=>assert_equals( exp = if_abap_behv=>mk-on act = error-%element-Author ).
+    cl_abap_unit_assert=>assert_equals( exp = if_abap_behv=>mk-on act = error-%element-Language ).
+    cl_abap_unit_assert=>assert_true( xsdbool( error-%msg IS INSTANCE OF zdgd_bookstore_exception ) ).
+    cl_abap_unit_assert=>assert_equals( exp = if_abap_behv_message=>severity-error act = error-%msg->m_severity ).
+    cl_abap_unit_assert=>assert_equals(
+        exp = zdgd_bookstore_exception=>book_not_in_master_data
+        act = CAST if_t100_message( error-%msg )->t100key ).
+    cl_abap_unit_assert=>assert_false( xsdbool( line_exists( mapped-book[ KEY cid %cid = cid ] ) ) ).
+  ENDMETHOD.
+
 ENDCLASS.
 
 CLASS ltcl_book_master_data DEFINITION FINAL
@@ -365,6 +515,8 @@ CLASS ltcl_book_master_data DEFINITION FINAL
     METHODS blank_details_fail             FOR TESTING.
     METHODS corrected_details_clear_msg    FOR TESTING.
     METHODS mixed_details_batch            FOR TESTING.
+    METHODS helper_mixed_master_batch      FOR TESTING.
+    METHODS helper_empty_master_batch      FOR TESTING.
     METHODS book_duplicate_fails           FOR TESTING.
     METHODS mixed_duplicate_batch          FOR TESTING.
     METHODS book_other_store_passes        FOR TESTING.
@@ -395,6 +547,34 @@ ENDCLASS.
 
 
 CLASS ltcl_book_master_data IMPLEMENTATION.
+  METHOD helper_mixed_master_batch.
+    given_master_details( ).
+    DATA(invalid_books) = lcl_book_validation=>get_instance( )->find_invalid_master_data(
+        VALUE #( ( BookID = master_book_id BookName = 'Master Book' Author = 'Master Author' Language = 'E' )
+                 ( BookID = master_book_id BookName = 'Master Book' Author = 'Wrong Author' Language = 'E' )
+                 ( BookID = master_book_id BookName = 'Master Book' Author = 'Wrong Author' Language = 'E' )
+                 ( BookID = missing_book_id BookName = 'Missing Book' Author = 'Missing Author' Language = 'E' ) ) ).
+
+    cl_abap_unit_assert=>assert_equals( exp = 2 act = lines( invalid_books ) ).
+    cl_abap_unit_assert=>assert_false( xsdbool( line_exists( invalid_books[
+        BookID = master_book_id BookName = 'Master Book' Author = 'Master Author' Language = 'E' ] ) ) ).
+    DATA(mismatch) = invalid_books[
+        BookID = master_book_id BookName = 'Master Book' Author = 'Wrong Author' Language = 'E' ].
+    cl_abap_unit_assert=>assert_false( mismatch-name_mismatch ).
+    cl_abap_unit_assert=>assert_true( mismatch-author_mismatch ).
+    cl_abap_unit_assert=>assert_false( mismatch-language_mismatch ).
+    DATA(missing) = invalid_books[
+        BookID = missing_book_id BookName = 'Missing Book' Author = 'Missing Author' Language = 'E' ].
+    cl_abap_unit_assert=>assert_true( missing-name_mismatch ).
+    cl_abap_unit_assert=>assert_true( missing-author_mismatch ).
+    cl_abap_unit_assert=>assert_true( missing-language_mismatch ).
+  ENDMETHOD.
+
+  METHOD helper_empty_master_batch.
+    DATA(invalid_books) = lcl_book_validation=>get_instance( )->find_invalid_master_data( VALUE #( ) ).
+    cl_abap_unit_assert=>assert_initial( invalid_books ).
+  ENDMETHOD.
+
   METHOD class_setup.
     sql_test_environment = cl_osql_test_environment=>create( i_dependency_list = VALUE #( ( 'ZDGD_I_BOOKMASTERDATA' )
                                                                                           ( 'ZDGD_I_BOOKMASTERDATA_D' )

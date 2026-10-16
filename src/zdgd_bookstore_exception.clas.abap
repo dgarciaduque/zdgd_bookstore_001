@@ -23,6 +23,14 @@ CLASS zdgd_bookstore_exception DEFINITION
                  attr3 TYPE scx_attrname VALUE '',
                  attr4 TYPE scx_attrname VALUE '',
                END OF book_already_exists.
+    CONSTANTS: BEGIN OF request_contains_duplicates,
+                 msgid TYPE symsgid      VALUE 'ZDGD_BOOKSTORE',
+                 msgno TYPE symsgno      VALUE '003',
+                 attr1 TYPE scx_attrname VALUE '',
+                 attr2 TYPE scx_attrname VALUE '',
+                 attr3 TYPE scx_attrname VALUE '',
+                 attr4 TYPE scx_attrname VALUE '',
+               END OF request_contains_duplicates.
 
     METHODS constructor
       IMPORTING textid    LIKE if_t100_message=>t100key         OPTIONAL
@@ -36,12 +44,8 @@ ENDCLASS.
 
 
 CLASS zdgd_bookstore_exception IMPLEMENTATION.
-
-
   METHOD constructor ##ADT_SUPPRESS_GENERATION.
-    super->constructor(
-    previous = previous
-    ).
+    super->constructor( previous = previous ).
     CLEAR me->textid.
     IF textid IS INITIAL.
       if_t100_message~t100key = book_not_in_master_data.
