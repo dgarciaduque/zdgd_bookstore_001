@@ -25,12 +25,14 @@ authorization master ( instance )
   field ( mandatory : create ) BookstoreName;
   field ( mandatory : create ) City;
 
+  static action ReStockBook parameter ZDGD_D_ReStockBookParam;
+
   association _Books { create ( precheck ); with draft; }
 }
 
 define behavior for ZDGD_I_Book alias Book
 draft table zdgd_i_book_d
-early numbering
+early numbering //BookID is taken from master data
 lock dependent by _Bookstore
 etag dependent by _Bookstore
 authorization dependent by _Bookstore
