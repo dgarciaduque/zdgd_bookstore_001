@@ -68,6 +68,11 @@ CLASS lhc_bookstore DEFINITION
       REQUEST requested_authorizations FOR bookstore RESULT result.
     METHODS precheck_cba_books FOR PRECHECK
       entities FOR CREATE bookstore\_books.
+    METHODS getdefaultsforrestockbook FOR READ
+      keys FOR FUNCTION bookstore~getdefaultsforrestockbook RESULT result.
+
+    METHODS restockbook FOR MODIFY
+      keys FOR ACTION bookstore~restockbook.
     METHODS earlynumbering_cba_books FOR NUMBERING
       entities FOR CREATE bookstore\_books.
 
@@ -289,6 +294,12 @@ CLASS lhc_bookstore IMPLEMENTATION.
     ENDLOOP.
   ENDMETHOD.
 
+  METHOD GetDefaultsForRestockBook.
+  ENDMETHOD.
+
+  METHOD ReStockBook.
+  ENDMETHOD.
+
 ENDCLASS.
 
 CLASS ltcl_book_master_data DEFINITION DEFERRED FOR TESTING.
@@ -488,4 +499,3 @@ CLASS lcl_book_validation IMPLEMENTATION.
   ENDMETHOD.
 
 ENDCLASS.
-

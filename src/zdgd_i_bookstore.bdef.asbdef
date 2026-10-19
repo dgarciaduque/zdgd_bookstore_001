@@ -25,7 +25,7 @@ authorization master ( instance )
   field ( mandatory : create ) BookstoreName;
   field ( mandatory : create ) City;
 
-  static action ReStockBook parameter ZDGD_D_ReStockBookParam;
+  static action ( authorization : global ) ReStockBook parameter ZDGD_D_ReStockBookParam { default function GetDefaultsForRestockBook ; }
 
   association _Books { create ( precheck ); with draft; }
 }
