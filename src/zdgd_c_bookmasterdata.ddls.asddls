@@ -11,6 +11,7 @@ define root view entity ZDGD_C_BookMasterData
   as projection on ZDGD_I_BookMasterData
 
 {
+  @ObjectModel.text.element: ['BookName', 'Author', 'Language']
   key BookID,
 
       @Search.defaultSearchElement: true

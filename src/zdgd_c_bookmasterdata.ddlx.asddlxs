@@ -13,6 +13,7 @@ annotate entity ZDGD_C_BookMasterData
                  type: #IDENTIFICATION_REFERENCE,
                  label: 'Book',
                  position: 10 } ]
+  @UI.textArrangement: #TEXT_ONLY
   @UI.hidden: true
   BookID;
 

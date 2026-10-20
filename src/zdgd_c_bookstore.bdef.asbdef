@@ -14,6 +14,8 @@ define behavior for ZDGD_C_BOOKSTORE alias Bookstore
   use action Prepare;
   use action Resume;
 
+  use action ReStockBook;
+
   use association _Books { create; with draft; }
 }
 
