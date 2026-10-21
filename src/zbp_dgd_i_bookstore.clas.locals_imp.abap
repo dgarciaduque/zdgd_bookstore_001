@@ -295,6 +295,28 @@ CLASS lhc_bookstore IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD GetDefaultsForRestockBook.
+    CONSTANTS stock_threshold TYPE zdgd_d_restockbookparam-StockThreshold VALUE 3.
+    CONSTANTS target_stock TYPE zdgd_d_restockbookparam-TargetStock VALUE 10.
+
+    IF keys IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    SELECT FROM zdgd_i_book
+      FIELDS BookID,
+             SUM( CAST( @target_stock AS INT4 ) - CAST( UnitsInStock AS INT4 ) ) AS replenishment
+      WHERE UnitsInStock < @stock_threshold
+      GROUP BY BookID
+      ORDER BY replenishment DESCENDING, BookID ASCENDING
+      INTO TABLE @DATA(candidates)
+      UP TO 1 ROWS.
+
+    DATA(book_id) = VALUE #( candidates[ 1 ]-BookID OPTIONAL ).
+    result = VALUE #( FOR request IN keys
+                      ( VALUE #( BASE CORRESPONDING #( request )
+                                 %param = VALUE #( BookID = book_id
+                                                   StockThreshold = stock_threshold
+                                                   TargetStock = target_stock ) ) ) ).
   ENDMETHOD.
 
   METHOD ReStockBook.

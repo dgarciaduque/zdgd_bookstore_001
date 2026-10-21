@@ -50,6 +50,16 @@ CLASS ltcl_book_numbering DEFINITION FINAL
     METHODS empty_requests                 FOR TESTING.
     METHODS empty_targets                  FOR TESTING.
 
+    METHODS defaults_aggregate_stock FOR TESTING.
+    METHODS defaults_threshold_boundary FOR TESTING.
+    METHODS defaults_tie_by_book_id FOR TESTING.
+    METHODS defaults_empty_inventory FOR TESTING.
+    METHODS defaults_no_candidate FOR TESTING.
+    METHODS defaults_large_total FOR TESTING.
+    METHODS defaults_empty_requests FOR TESTING.
+    METHODS assert_restock_defaults
+      IMPORTING expected_book_id TYPE sysuuid_x16 OPTIONAL.
+
     METHODS given_master
       IMPORTING book_id   TYPE sysuuid_x16     DEFAULT master_id
                 book_name TYPE zdgd_bookname   DEFAULT 'Book A'
@@ -99,6 +109,84 @@ CLASS ltcl_book_numbering IMPLEMENTATION.
 
   METHOD teardown.
     sql_environment->clear_doubles( ).
+  ENDMETHOD.
+
+  METHOD assert_restock_defaults.
+    DATA defaults TYPE TABLE FOR FUNCTION RESULT zdgd_i_bookstore\\Bookstore~GetDefaultsForRestockBook.
+    cut->getdefaultsforrestockbook(
+      EXPORTING keys = VALUE #( ( %cid = 'FIRST' ) ( %cid = 'SECOND' ) )
+      CHANGING result = defaults ).
+
+    cl_abap_unit_assert=>assert_equals( exp = 2 act = lines( defaults ) ).
+    cl_abap_unit_assert=>assert_equals( exp = 'FIRST' act = defaults[ 1 ]-%cid ).
+    cl_abap_unit_assert=>assert_equals( exp = 'SECOND' act = defaults[ 2 ]-%cid ).
+    LOOP AT defaults INTO DATA(default).
+      cl_abap_unit_assert=>assert_equals( exp = expected_book_id act = default-%param-BookID ).
+      cl_abap_unit_assert=>assert_equals( exp = 3 act = default-%param-StockThreshold ).
+      cl_abap_unit_assert=>assert_equals( exp = 10 act = default-%param-TargetStock ).
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD defaults_aggregate_stock.
+    DATA(books) = VALUE persisted_books(
+      ( BookstoreID = store_id BookID = master_id UnitsInStock = 1 )
+      ( BookstoreID = other_id BookID = master_id UnitsInStock = 2 )
+      ( BookstoreID = store_id BookID = other_id UnitsInStock = 0 ) ).
+    sql_environment->insert_test_data( books ).
+
+    assert_restock_defaults( expected_book_id = master_id ).
+  ENDMETHOD.
+
+  METHOD defaults_threshold_boundary.
+    DATA(books) = VALUE persisted_books(
+      ( BookstoreID = store_id BookID = master_id UnitsInStock = 2 )
+      ( BookstoreID = store_id BookID = other_id UnitsInStock = 3 )
+      ( BookstoreID = other_id BookID = other_id UnitsInStock = 3 )
+      ( BookstoreID = master_id BookID = other_id UnitsInStock = 11 ) ).
+    sql_environment->insert_test_data( books ).
+
+    assert_restock_defaults( expected_book_id = master_id ).
+  ENDMETHOD.
+
+  METHOD defaults_tie_by_book_id.
+    DATA(books) = VALUE persisted_books(
+      ( BookstoreID = store_id BookID = other_id UnitsInStock = 1 )
+      ( BookstoreID = store_id BookID = master_id UnitsInStock = 1 ) ).
+    sql_environment->insert_test_data( books ).
+
+    assert_restock_defaults( expected_book_id = master_id ).
+  ENDMETHOD.
+
+  METHOD defaults_empty_inventory.
+    assert_restock_defaults( ).
+  ENDMETHOD.
+
+  METHOD defaults_no_candidate.
+    DATA(books) = VALUE persisted_books(
+      ( BookstoreID = store_id BookID = master_id UnitsInStock = 3 )
+      ( BookstoreID = store_id BookID = other_id UnitsInStock = 10 ) ).
+    sql_environment->insert_test_data( books ).
+
+    assert_restock_defaults( ).
+  ENDMETHOD.
+
+  METHOD defaults_large_total.
+    DATA(books) = VALUE persisted_books(
+      FOR store_index = 1 UNTIL store_index > 30
+      ( BookstoreID = CONV #( store_index ) BookID = master_id UnitsInStock = 0 ) ).
+    APPEND VALUE #( BookstoreID = store_id BookID = other_id UnitsInStock = 0 ) TO books.
+    sql_environment->insert_test_data( books ).
+
+    assert_restock_defaults( expected_book_id = master_id ).
+  ENDMETHOD.
+
+  METHOD defaults_empty_requests.
+    DATA defaults TYPE TABLE FOR FUNCTION RESULT zdgd_i_bookstore\\Bookstore~GetDefaultsForRestockBook.
+    cut->getdefaultsforrestockbook(
+      EXPORTING keys = VALUE #( )
+      CHANGING result = defaults ).
+
+    cl_abap_unit_assert=>assert_initial( defaults ).
   ENDMETHOD.
 
   METHOD resolves_semantic_key.
