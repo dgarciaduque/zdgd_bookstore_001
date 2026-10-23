@@ -17,11 +17,11 @@ define table entity ZDGD_I_Book
 
       BookName     : ZDGD_BookName;
       Author       : ZDGD_BookAuthor;
-      UnitsInStock : abap.int1;
+      UnitsInStock : abap.int4;
 
       @Semantics.language: true
       Language     : spras;
 
-      _Bookstore   : association to parent ZDGD_I_Bookstore on $projection.bookstoreid = _Bookstore.bookstoreid;
+      _Bookstore   : association to parent ZDGD_I_Bookstore on $projection.BookstoreID = _Bookstore.BookstoreID;
       _BookMasterData: association of many to exact one ZDGD_I_BookMasterData on $projection.BookID = _BookMasterData.BookID;
 }

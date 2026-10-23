@@ -26,6 +26,30 @@
      <MSGNR>003</MSGNR>
      <TEXT>The request contains duplicates</TEXT>
     </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZDGD_BOOKSTORE</ARBGB>
+     <MSGNR>004</MSGNR>
+     <TEXT>Target stock must be greater than the stock threshold.</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZDGD_BOOKSTORE</ARBGB>
+     <MSGNR>005</MSGNR>
+     <TEXT>Restocking could not be completed. Check the inventory messages.</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZDGD_BOOKSTORE</ARBGB>
+     <MSGNR>006</MSGNR>
+     <TEXT>No inventory entries are below the stock threshold for this book.</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZDGD_BOOKSTORE</ARBGB>
+     <MSGNR>007</MSGNR>
+     <TEXT>&amp;1 inventory entries restocked to &amp;2 units.</TEXT>
+    </T100>
    </T100>
   </asx:values>
  </asx:abap>

@@ -15,6 +15,7 @@ define behavior for ZDGD_C_BOOKSTORE alias Bookstore
   use action Resume;
 
   use action ReStockBook;
+  use function GetDefaultsForRestockBook;
 
   use association _Books { create; with draft; }
 }

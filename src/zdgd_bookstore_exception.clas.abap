@@ -32,6 +32,30 @@ CLASS zdgd_bookstore_exception DEFINITION
                  attr4 TYPE scx_attrname VALUE '',
                END OF request_contains_duplicates.
 
+    CONSTANTS: BEGIN OF invalid_restock_target,
+                 msgid TYPE symsgid      VALUE 'ZDGD_BOOKSTORE',
+                 msgno TYPE symsgno      VALUE '004',
+                 attr1 TYPE scx_attrname VALUE '',
+                 attr2 TYPE scx_attrname VALUE '',
+                 attr3 TYPE scx_attrname VALUE '',
+                 attr4 TYPE scx_attrname VALUE '',
+               END OF invalid_restock_target.
+    CONSTANTS: BEGIN OF restock_failed,
+                 msgid TYPE symsgid      VALUE 'ZDGD_BOOKSTORE',
+                 msgno TYPE symsgno      VALUE '005',
+                 attr1 TYPE scx_attrname VALUE '',
+                 attr2 TYPE scx_attrname VALUE '',
+                 attr3 TYPE scx_attrname VALUE '',
+                 attr4 TYPE scx_attrname VALUE '',
+               END OF restock_failed.
+    CONSTANTS: BEGIN OF no_restock_candidates,
+                 msgid TYPE symsgid      VALUE 'ZDGD_BOOKSTORE',
+                 msgno TYPE symsgno      VALUE '006',
+                 attr1 TYPE scx_attrname VALUE '',
+                 attr2 TYPE scx_attrname VALUE '',
+                 attr3 TYPE scx_attrname VALUE '',
+                 attr4 TYPE scx_attrname VALUE '',
+               END OF no_restock_candidates.
     METHODS constructor
       IMPORTING textid    LIKE if_t100_message=>t100key         OPTIONAL
                 !previous LIKE previous                         OPTIONAL

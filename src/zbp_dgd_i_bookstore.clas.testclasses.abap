@@ -57,6 +57,18 @@ CLASS ltcl_book_numbering DEFINITION FINAL
     METHODS defaults_no_candidate FOR TESTING.
     METHODS defaults_large_total FOR TESTING.
     METHODS defaults_empty_requests FOR TESTING.
+    METHODS restock_updates_only_eligible FOR TESTING.
+    METHODS restock_rejects_missing_master FOR TESTING.
+    METHODS restock_rejects_initial_book FOR TESTING.
+    METHODS restock_rejects_invalid_target FOR TESTING.
+    METHODS restock_no_assignments FOR TESTING.
+    METHODS restock_zero_threshold FOR TESTING.
+    METHODS restock_empty_requests FOR TESTING.
+    METHODS restock_authorization FOR TESTING.
+    METHODS execute_restock
+      IMPORTING book_id TYPE sysuuid_x16 DEFAULT master_id
+                threshold TYPE int1 DEFAULT 3
+                target TYPE int1 DEFAULT 10.
     METHODS assert_restock_defaults
       IMPORTING expected_book_id TYPE sysuuid_x16 OPTIONAL.
 
@@ -95,6 +107,9 @@ CLASS ltcl_book_numbering IMPLEMENTATION.
     sql_environment = cl_osql_test_environment=>create(
       i_dependency_list = VALUE #( ( 'ZDGD_I_BOOKMASTERDATA' )
                      ( 'ZDGD_I_BOOKMASTERDATA_D' )
+                     ( 'ZDGD_I_BOOKSTORE' )
+                     ( 'ZDGD_I_BOOKSTORE_D' )
+                     ( 'ZDGD_I_BOOK_D' )
                      ( 'ZDGD_I_BOOK' ) ) ).
   ENDMETHOD.
 
@@ -108,7 +123,134 @@ CLASS ltcl_book_numbering IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD teardown.
+    ROLLBACK ENTITIES.
     sql_environment->clear_doubles( ).
+  ENDMETHOD.
+
+  METHOD execute_restock.
+    cut->restockbook(
+      EXPORTING keys = VALUE #( ( %cid = 'RESTOCK'
+                                  %param = VALUE #( BookID = book_id
+                                                    StockThreshold = threshold
+                                                    TargetStock = target ) ) )
+      CHANGING mapped = mapped failed = failed reported = reported ).
+  ENDMETHOD.
+
+  METHOD restock_updates_only_eligible.
+    DATA success_message TYPE REF TO if_t100_dyn_msg.
+    given_master( ).
+    DATA stores TYPE STANDARD TABLE OF zdgd_i_bookstore WITH EMPTY KEY.
+    stores = VALUE #( ( BookstoreID = store_id BookstoreName = 'Store A' City = 'City A' )
+                      ( BookstoreID = other_id BookstoreName = 'Store B' City = 'City B' )
+                      ( BookstoreID = master_id BookstoreName = 'Store C' City = 'City C' ) ).
+    sql_environment->insert_test_data( stores ).
+    DATA(books) = VALUE persisted_books(
+      ( BookstoreID = store_id BookID = master_id UnitsInStock = 0 )
+      ( BookstoreID = other_id BookID = master_id UnitsInStock = 2 )
+      ( BookstoreID = master_id BookID = master_id UnitsInStock = 3 )
+      ( BookstoreID = store_id BookID = other_id UnitsInStock = 1 ) ).
+    sql_environment->insert_test_data( books ).
+
+    execute_restock( ).
+    cl_abap_unit_assert=>assert_initial( failed ).
+    success_message ?= reported-bookstore[ 1 ]-%msg.
+    cl_abap_unit_assert=>assert_false(
+      xsdbool( reported-bookstore[ 1 ]-%msg IS INSTANCE OF zdgd_bookstore_exception ) ).
+    cl_abap_unit_assert=>assert_equals(
+      exp = 'ZDGD_BOOKSTORE' act = success_message->if_t100_message~t100key-msgid ).
+    cl_abap_unit_assert=>assert_equals(
+      exp = '007' act = success_message->if_t100_message~t100key-msgno ).
+    cl_abap_unit_assert=>assert_equals( exp = '2' act = success_message->msgv1 ).
+    cl_abap_unit_assert=>assert_equals( exp = '10' act = success_message->msgv2 ).
+    cl_abap_unit_assert=>assert_equals(
+      exp = if_abap_behv_message=>severity-success
+      act = reported-bookstore[ 1 ]-%msg->m_severity ).
+    READ ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
+      ENTITY Book FIELDS ( UnitsInStock )
+      WITH VALUE #( FOR book IN books
+                    ( BookstoreID = book-BookstoreID BookID = book-BookID
+                      %is_draft = if_abap_behv=>mk-off ) )
+      RESULT DATA(actual_books)
+      FAILED DATA(read_failed).
+    cl_abap_unit_assert=>assert_initial( read_failed ).
+    cl_abap_unit_assert=>assert_equals( exp = 4 act = lines( actual_books ) ).
+    LOOP AT actual_books INTO DATA(actual_book).
+      DATA(original_book) = books[ BookstoreID = actual_book-BookstoreID BookID = actual_book-BookID ].
+      cl_abap_unit_assert=>assert_equals(
+        exp = COND int1( WHEN original_book-BookID = master_id AND original_book-UnitsInStock < 3
+                         THEN 10 ELSE original_book-UnitsInStock )
+        act = actual_book-UnitsInStock ).
+    ENDLOOP.
+
+    CLEAR: failed, reported.
+    execute_restock( ).
+    cl_abap_unit_assert=>assert_initial( failed ).
+    cl_abap_unit_assert=>assert_equals(
+      exp = if_abap_behv_message=>severity-information
+      act = reported-bookstore[ 1 ]-%msg->m_severity ).
+  ENDMETHOD.
+
+  METHOD restock_rejects_missing_master.
+    execute_restock( ).
+    cl_abap_unit_assert=>assert_equals( exp = 'RESTOCK' act = failed-bookstore[ 1 ]-%cid ).
+    cl_abap_unit_assert=>assert_true(
+      xsdbool( reported-bookstore[ 1 ]-%msg IS INSTANCE OF zdgd_bookstore_exception ) ).
+  ENDMETHOD.
+
+  METHOD restock_rejects_initial_book.
+    execute_restock( book_id = CONV #( '' ) ).
+    cl_abap_unit_assert=>assert_equals( exp = 1 act = lines( failed-bookstore ) ).
+  ENDMETHOD.
+
+  METHOD restock_rejects_invalid_target.
+    execute_restock( target = 3 ).
+    cl_abap_unit_assert=>assert_equals( exp = 1 act = lines( failed-bookstore ) ).
+    cl_abap_unit_assert=>assert_equals(
+      exp = zdgd_bookstore_exception=>invalid_restock_target
+      act = CAST zdgd_bookstore_exception( reported-bookstore[ 1 ]-%msg )->if_t100_message~t100key ).
+    CLEAR: failed, reported.
+    execute_restock( target = 2 ).
+    cl_abap_unit_assert=>assert_equals( exp = 1 act = lines( failed-bookstore ) ).
+  ENDMETHOD.
+
+  METHOD restock_no_assignments.
+    given_master( ).
+    execute_restock( ).
+    cl_abap_unit_assert=>assert_initial( failed ).
+    cl_abap_unit_assert=>assert_equals(
+      exp = zdgd_bookstore_exception=>no_restock_candidates
+      act = CAST zdgd_bookstore_exception( reported-bookstore[ 1 ]-%msg )->if_t100_message~t100key ).
+    cl_abap_unit_assert=>assert_equals(
+      exp = if_abap_behv_message=>severity-information
+      act = reported-bookstore[ 1 ]-%msg->m_severity ).
+  ENDMETHOD.
+
+  METHOD restock_zero_threshold.
+    given_master( ).
+    DATA(books) = VALUE persisted_books(
+      ( BookstoreID = store_id BookID = master_id UnitsInStock = 0 ) ).
+    sql_environment->insert_test_data( books ).
+    execute_restock( threshold = 0 ).
+    cl_abap_unit_assert=>assert_initial( failed ).
+    cl_abap_unit_assert=>assert_equals(
+      exp = if_abap_behv_message=>severity-information
+      act = reported-bookstore[ 1 ]-%msg->m_severity ).
+  ENDMETHOD.
+
+  METHOD restock_empty_requests.
+    cut->restockbook( EXPORTING keys = VALUE #( )
+                      CHANGING mapped = mapped failed = failed reported = reported ).
+    cl_abap_unit_assert=>assert_initial( failed ).
+    cl_abap_unit_assert=>assert_initial( reported ).
+  ENDMETHOD.
+
+  METHOD restock_authorization.
+    DATA authorization TYPE STRUCTURE FOR GLOBAL AUTHORIZATION RESULT zdgd_i_bookstore\\Bookstore.
+    cut->get_global_authorizations(
+      EXPORTING requested_authorizations = VALUE #( %action-ReStockBook = if_abap_behv=>mk-on )
+      CHANGING result = authorization ).
+    cl_abap_unit_assert=>assert_equals(
+      exp = if_abap_behv=>auth-allowed act = authorization-%action-ReStockBook ).
   ENDMETHOD.
 
   METHOD assert_restock_defaults.

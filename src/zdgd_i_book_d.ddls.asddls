@@ -14,7 +14,7 @@ define table entity ZDGD_I_Book_D
 
       BookName       : ZDGD_BookName;
       Author         : ZDGD_BookAuthor;
-      UnitsInStock : abap.int1;
+      UnitsInStock : abap.int4;
       Language     : spras;
 
       include SYCH_BDL_DRAFT_ADMIN_INC.* signature only;

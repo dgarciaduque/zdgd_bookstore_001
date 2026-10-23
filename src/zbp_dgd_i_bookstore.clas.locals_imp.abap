@@ -47,6 +47,15 @@ INTERFACE lif_book_validation.
                                    RETURNING VALUE(invalid_books) TYPE master_findings.
 ENDINTERFACE.
 
+
+INTERFACE lif_messages.
+  CONSTANTS message_class TYPE symsgid VALUE 'ZDGD_BOOKSTORE'.
+  CONSTANTS: BEGIN OF message_no,
+               entries_restocked_correctly TYPE symsgno VALUE '007',
+             END OF message_no.
+
+ENDINTERFACE.
+
 CLASS lcl_book_validation DEFINITION CREATE PRIVATE.
   PUBLIC SECTION.
     INTERFACES lif_book_validation.
@@ -89,6 +98,9 @@ CLASS lhc_bookstore IMPLEMENTATION.
 
   METHOD get_global_authorizations.
     result-%create = if_abap_behv=>auth-allowed.
+    IF requested_authorizations-%action-ReStockBook = if_abap_behv=>mk-on.
+      result-%action-ReStockBook = if_abap_behv=>auth-allowed.
+    ENDIF.
   ENDMETHOD.
 
   METHOD earlynumbering_cba_books.
@@ -296,30 +308,123 @@ CLASS lhc_bookstore IMPLEMENTATION.
 
   METHOD GetDefaultsForRestockBook.
     CONSTANTS stock_threshold TYPE zdgd_d_restockbookparam-StockThreshold VALUE 3.
-    CONSTANTS target_stock TYPE zdgd_d_restockbookparam-TargetStock VALUE 10.
+    CONSTANTS target_stock    TYPE zdgd_d_restockbookparam-TargetStock    VALUE 10.
 
     IF keys IS INITIAL.
       RETURN.
     ENDIF.
 
+    " Propose the book that would have the highest amount of units re-stocked.
     SELECT FROM zdgd_i_book
       FIELDS BookID,
-             SUM( CAST( @target_stock AS INT4 ) - CAST( UnitsInStock AS INT4 ) ) AS replenishment
+             SUM( @target_stock - UnitsInStock ) AS replenishment
       WHERE UnitsInStock < @stock_threshold
       GROUP BY BookID
-      ORDER BY replenishment DESCENDING, BookID ASCENDING
+      ORDER BY replenishment DESCENDING,
+               BookID ASCENDING
       INTO TABLE @DATA(candidates)
       UP TO 1 ROWS.
 
     DATA(book_id) = VALUE #( candidates[ 1 ]-BookID OPTIONAL ).
     result = VALUE #( FOR request IN keys
                       ( VALUE #( BASE CORRESPONDING #( request )
-                                 %param = VALUE #( BookID = book_id
+                                 %param = VALUE #( BookID         = book_id
                                                    StockThreshold = stock_threshold
-                                                   TargetStock = target_stock ) ) ) ).
+                                                   TargetStock    = target_stock ) ) ) ).
   ENDMETHOD.
 
   METHOD ReStockBook.
+    DATA request          TYPE STRUCTURE FOR ACTION IMPORT zdgd_i_bookstore\\bookstore~restockbook.
+    DATA master_candidate TYPE lif_book_validation=>master_candidate.
+    DATA invalid_books    TYPE lif_book_validation=>master_findings.
+    DATA candidate_keys   TYPE lif_book_validation=>book_keys.
+    DATA books            TYPE TABLE FOR READ RESULT zdgd_i_bookstore\\Book.
+    DATA updates          TYPE TABLE FOR UPDATE zdgd_i_bookstore\\Book.
+    DATA read_failed      TYPE RESPONSE FOR FAILED EARLY zdgd_i_bookstore.
+    DATA read_reported    TYPE RESPONSE FOR REPORTED EARLY zdgd_i_bookstore.
+    DATA update_failed    TYPE RESPONSE FOR FAILED EARLY zdgd_i_bookstore.
+    DATA update_reported  TYPE RESPONSE FOR REPORTED EARLY zdgd_i_bookstore.
+
+    LOOP AT keys INTO request.
+      IF request-%param-TargetStock <= request-%param-StockThreshold.
+        APPEND VALUE #( %cid = request-%cid ) TO failed-bookstore.
+        APPEND VALUE #( %cid = request-%cid
+                        %msg = NEW zdgd_bookstore_exception(
+                                       textid = zdgd_bookstore_exception=>invalid_restock_target ) )
+               TO reported-bookstore.
+        CONTINUE.
+      ENDIF.
+
+      SELECT SINGLE FROM zdgd_i_bookmasterdata
+        FIELDS BookID, BookName, Author, Language
+        WHERE BookID = @request-%param-BookID
+        INTO @master_candidate.
+      master_candidate-BookID = request-%param-BookID.
+
+      invalid_books = lcl_book_validation=>get_instance( )->find_invalid_master_data(
+                          books = VALUE #( ( master_candidate ) ) ).
+      IF request-%param-BookID IS INITIAL OR invalid_books IS NOT INITIAL.
+        APPEND VALUE #( %cid = request-%cid ) TO failed-bookstore.
+        APPEND VALUE #( %cid = request-%cid
+                        %msg = NEW zdgd_bookstore_exception(
+                                       textid = zdgd_bookstore_exception=>book_not_in_master_data ) )
+               TO reported-bookstore.
+        CONTINUE.
+      ENDIF.
+
+      SELECT FROM zdgd_i_book
+        FIELDS BookstoreID, BookID
+        WHERE BookID       = @request-%param-BookID
+          AND UnitsInStock < @request-%param-StockThreshold
+        INTO TABLE @candidate_keys.
+
+      READ ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
+           ENTITY Book
+           FIELDS ( UnitsInStock )
+           WITH VALUE #( FOR candidate IN candidate_keys
+                         ( BookstoreID = candidate-BookstoreID
+                           BookID      = candidate-BookID
+                           %is_draft   = if_abap_behv=>mk-off ) )
+           RESULT books
+           FAILED read_failed
+           REPORTED read_reported.
+
+      updates = VALUE #( FOR book IN books
+                         WHERE ( UnitsInStock < request-%param-StockThreshold )
+                         ( %tky         = book-%tky
+                           UnitsInStock = request-%param-TargetStock ) ).
+
+      MODIFY ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
+             ENTITY Book
+             UPDATE FIELDS ( UnitsInStock ) WITH updates
+             FAILED update_failed
+             REPORTED update_reported.
+
+      APPEND LINES OF read_reported-book TO reported-book.
+      APPEND LINES OF read_reported-bookstore TO reported-bookstore.
+      APPEND LINES OF update_reported-book TO reported-book.
+      APPEND LINES OF update_reported-bookstore TO reported-bookstore.
+
+      IF read_failed IS NOT INITIAL OR update_failed IS NOT INITIAL.
+        APPEND VALUE #( %cid = request-%cid ) TO failed-bookstore.
+        APPEND VALUE #( %cid = request-%cid
+                        %msg = NEW zdgd_bookstore_exception( textid = zdgd_bookstore_exception=>restock_failed ) )
+               TO reported-bookstore.
+      ELSEIF updates IS INITIAL.
+        APPEND VALUE #( %cid = request-%cid
+                        %msg = NEW zdgd_bookstore_exception( textid   = zdgd_bookstore_exception=>no_restock_candidates
+                                                             severity = if_abap_behv_message=>severity-information ) )
+               TO reported-bookstore.
+      ELSE.
+        APPEND VALUE #( %cid = request-%cid
+                        %msg = new_message( id       = lif_messages=>message_class
+                                            number   = lif_messages=>message_no-entries_restocked_correctly
+                                            severity = if_abap_behv_message=>severity-success
+                                            v1       = lines( updates )
+                                            v2       = request-%param-TargetStock ) )
+               TO reported-bookstore.
+      ENDIF.
+    ENDLOOP.
   ENDMETHOD.
 
 ENDCLASS.
@@ -521,3 +626,4 @@ CLASS lcl_book_validation IMPLEMENTATION.
   ENDMETHOD.
 
 ENDCLASS.
+
