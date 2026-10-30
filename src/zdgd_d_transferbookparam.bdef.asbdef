@@ -1,0 +1,12 @@
+abstract;
+strict ( 2 );
+with hierarchy;
+
+define behavior for ZDGD_D_TransferBookParam alias Parameter
+{
+association _TransferItems;
+}
+
+define behavior for ZDGD_D_TransferBookParamItem alias ParameterItem
+{
+}

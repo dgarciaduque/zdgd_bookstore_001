@@ -65,6 +65,9 @@ CLASS ltcl_book_numbering DEFINITION FINAL
     METHODS restock_zero_threshold FOR TESTING.
     METHODS restock_empty_requests FOR TESTING.
     METHODS restock_authorization FOR TESTING.
+    METHODS restock_precheck_mixed FOR TESTING.
+    METHODS restock_precheck_draft_master FOR TESTING.
+    METHODS restock_precheck_blocks_update FOR TESTING.
     METHODS execute_restock
       IMPORTING book_id TYPE sysuuid_x16 DEFAULT master_id
                 threshold TYPE int1 DEFAULT 3
@@ -128,12 +131,97 @@ CLASS ltcl_book_numbering IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD execute_restock.
-    cut->restockbook(
-      EXPORTING keys = VALUE #( ( %cid = 'RESTOCK'
-                                  %param = VALUE #( BookID = book_id
-                                                    StockThreshold = threshold
-                                                    TargetStock = target ) ) )
-      CHANGING mapped = mapped failed = failed reported = reported ).
+    MODIFY ENTITIES OF zdgd_i_bookstore
+      ENTITY Bookstore
+      EXECUTE ReStockBook FROM VALUE #( ( %cid = 'RESTOCK'
+                                          %param = VALUE #( BookID = book_id
+                                                            StockThreshold = threshold
+                                                            TargetStock = target ) ) )
+      MAPPED mapped
+      FAILED failed
+      REPORTED reported.
+  ENDMETHOD.
+
+  METHOD restock_precheck_mixed.
+    given_master( ).
+    cut->precheck_restockbook( EXPORTING keys     = VALUE #(
+                                   ( %cid   = 'VALID'
+                                     %param = VALUE #( BookID         = master_id
+                                                       StockThreshold = 3
+                                                       TargetStock    = 10 ) )
+                                   ( %cid   = 'UNKNOWN'
+                                     %param = VALUE #( BookID         = other_id
+                                                       StockThreshold = 3
+                                                       TargetStock    = 10 ) )
+                                   ( %cid   = 'INITIAL'
+                                     %param = VALUE #( StockThreshold = 3
+                                                       TargetStock    = 10 ) )
+                                   ( %cid   = 'TARGET'
+                                     %param = VALUE #( BookID         = master_id
+                                                       StockThreshold = 3
+                                                       TargetStock    = 3 ) ) )
+                               CHANGING  failed   = failed
+                                         reported = reported ).
+
+    cl_abap_unit_assert=>assert_equals( exp = 3
+                                        act = lines( failed-bookstore ) ).
+    cl_abap_unit_assert=>assert_equals( exp = 3
+                                        act = lines( reported-bookstore ) ).
+    cl_abap_unit_assert=>assert_false( xsdbool( line_exists( failed-bookstore[ KEY cid
+                                                                               COMPONENTS %cid = 'VALID' ] ) ) ).
+    cl_abap_unit_assert=>assert_true( xsdbool( line_exists( failed-bookstore[ KEY cid
+                                                                              COMPONENTS %cid = 'UNKNOWN' ] ) ) ).
+    cl_abap_unit_assert=>assert_true( xsdbool( line_exists( failed-bookstore[ KEY cid
+                                                                              COMPONENTS %cid = 'INITIAL' ] ) ) ).
+    cl_abap_unit_assert=>assert_equals(
+        exp = zdgd_bookstore_exception=>book_not_in_master_data
+        act = CAST zdgd_bookstore_exception( reported-bookstore[
+                                               KEY cid
+                                               COMPONENTS %cid = 'UNKNOWN' ]-%msg )->if_t100_message~t100key ).
+    cl_abap_unit_assert=>assert_equals(
+        exp = zdgd_bookstore_exception=>invalid_restock_target
+        act = CAST zdgd_bookstore_exception( reported-bookstore[
+                                               KEY cid
+                                               COMPONENTS %cid = 'TARGET' ]-%msg )->if_t100_message~t100key ).
+  ENDMETHOD.
+
+  METHOD restock_precheck_draft_master.
+    DATA drafts TYPE draft_books.
+    drafts = VALUE #( ( BookID = master_id BookName = 'Draft book' Author = 'Author' Language = 'E' ) ).
+    sql_environment->insert_test_data( drafts ).
+
+    cut->precheck_restockbook(
+      EXPORTING keys = VALUE #( ( %cid = 'DRAFT'
+                                  %param = VALUE #( BookID = master_id StockThreshold = 3 TargetStock = 10 ) ) )
+      CHANGING failed = failed reported = reported ).
+    cl_abap_unit_assert=>assert_equals( exp = 'DRAFT' act = failed-bookstore[ 1 ]-%cid ).
+    cl_abap_unit_assert=>assert_equals(
+      exp = zdgd_bookstore_exception=>book_not_in_master_data
+      act = CAST zdgd_bookstore_exception( reported-bookstore[ 1 ]-%msg )->if_t100_message~t100key ).
+  ENDMETHOD.
+
+  METHOD restock_precheck_blocks_update.
+    DATA stores TYPE STANDARD TABLE OF zdgd_i_bookstore WITH EMPTY KEY.
+    DATA books TYPE persisted_books.
+    DATA actual_books TYPE TABLE FOR READ RESULT zdgd_i_bookstore\\Book.
+    DATA read_failed TYPE RESPONSE FOR FAILED EARLY zdgd_i_bookstore.
+
+    given_master( ).
+    stores = VALUE #( ( BookstoreID = store_id BookstoreName = 'Store A' City = 'City A' ) ).
+    books = VALUE #( ( BookstoreID = store_id BookID = master_id UnitsInStock = 0 ) ).
+    sql_environment->insert_test_data( stores ).
+    sql_environment->insert_test_data( books ).
+
+    execute_restock( target = 3 ).
+    cl_abap_unit_assert=>assert_equals( exp = 'RESTOCK' act = failed-bookstore[ 1 ]-%cid ).
+    READ ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
+      ENTITY Book FIELDS ( UnitsInStock )
+      WITH VALUE #( ( BookstoreID = store_id BookID = master_id %is_draft = if_abap_behv=>mk-off ) )
+      RESULT actual_books
+      FAILED read_failed.
+    cl_abap_unit_assert=>assert_initial( read_failed ).
+    cl_abap_unit_assert=>assert_equals( exp = 1 act = lines( actual_books ) ).
+    cl_abap_unit_assert=>assert_equals( exp = 0 act = actual_books[ 1 ]-UnitsInStock ).
   ENDMETHOD.
 
   METHOD restock_updates_only_eligible.
@@ -728,6 +816,7 @@ CLASS ltcl_book_master_data DEFINITION FINAL
     METHODS teardown.
 
     METHODS active_master_passes           FOR TESTING.
+    METHODS transfer_defaults_match_source FOR TESTING.
     METHODS missing_master_fails           FOR TESTING.
     METHODS initial_id_fails               FOR TESTING.
     METHODS mixed_batch_fails_only_missing FOR TESTING.
@@ -777,6 +866,38 @@ ENDCLASS.
 
 
 CLASS ltcl_book_master_data IMPLEMENTATION.
+  METHOD transfer_defaults_match_source.
+    DATA defaults TYPE TABLE FOR FUNCTION RESULT zdgd_i_bookstore\\Book~GetDefaultsForTransferBook.
+
+    given_master_details( ).
+    given_book( book_id   = master_book_id
+                book_name = 'Master Book'
+                author    = 'Master Author'
+                language  = 'E' ).
+
+    cut->getdefaultsfortransferbook(
+      EXPORTING keys = CORRESPONDING #( book_keys )
+      CHANGING result = defaults ).
+
+    cl_abap_unit_assert=>assert_equals( exp = 1 act = lines( defaults ) ).
+    cl_abap_unit_assert=>assert_equals( exp = book_keys[ 1 ]-%tky act = defaults[ 1 ]-%tky ).
+    cl_abap_unit_assert=>assert_equals( exp = book_keys[ 1 ]-BookstoreID
+                                        act = defaults[ 1 ]-%param-ParameterID ).
+    cl_abap_unit_assert=>assert_equals( exp = 1 act = lines( defaults[ 1 ]-%param-_TransferItems ) ).
+    cl_abap_unit_assert=>assert_equals( exp = book_keys[ 1 ]-BookstoreID
+                                        act = defaults[ 1 ]-%param-_TransferItems[ 1 ]-SourceBookstoreID ).
+    cl_abap_unit_assert=>assert_equals( exp = book_keys[ 1 ]-BookstoreID
+                      act = defaults[ 1 ]-%param-_TransferItems[ 1 ]-ParameterID ).
+    cl_abap_unit_assert=>assert_equals( exp = master_book_id
+                                        act = defaults[ 1 ]-%param-_TransferItems[ 1 ]-SourceBookID ).
+    cl_abap_unit_assert=>assert_equals( exp = master_book_id
+                      act = defaults[ 1 ]-%param-_TransferItems[ 1 ]-ItemID ).
+    cl_abap_unit_assert=>assert_equals( exp = 'Master Book'
+                                        act = defaults[ 1 ]-%param-_TransferItems[ 1 ]-SourceBookName ).
+    cl_abap_unit_assert=>assert_equals( exp = 0
+                      act = defaults[ 1 ]-%param-_TransferItems[ 1 ]-AvailableStock ).
+  ENDMETHOD.
+
   METHOD helper_mixed_master_batch.
     given_master_details( ).
     DATA(invalid_books) = lcl_book_validation=>get_instance( )->find_invalid_master_data(

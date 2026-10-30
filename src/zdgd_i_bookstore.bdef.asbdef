@@ -25,7 +25,7 @@ authorization master ( instance )
   field ( mandatory : create ) BookstoreName;
   field ( mandatory : create ) City;
 
-  static action ( authorization : global ) ReStockBook parameter ZDGD_D_ReStockBookParam { default function GetDefaultsForRestockBook; }
+  static action ( authorization : global, precheck ) ReStockBook parameter ZDGD_D_ReStockBookParam { default function GetDefaultsForRestockBook; }
 
   association _Books { create ( precheck ); with draft; }
 }
@@ -45,6 +45,8 @@ authorization dependent by _Bookstore
   field ( mandatory : create, readonly : update ) BookName;
   field ( mandatory : create, readonly : update ) Author;
   field ( mandatory : create, readonly : update ) Language;
+
+  action TransferBooks deep parameter ZDGD_D_TransferBookParam { default function GetDefaultsForTransferBook; }
 
   validation exists_in_master_data on save { create; }
   validation no_duplicates_in_bookstore on save { create; }

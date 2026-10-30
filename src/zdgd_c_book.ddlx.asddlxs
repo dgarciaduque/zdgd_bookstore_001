@@ -17,7 +17,8 @@ annotate entity ZDGD_C_Book
   BookID;
 
   @UI.identification: [ { position: 10 } ]
-  @UI.lineItem: [ { position: 10 } ]
+  @UI.lineItem: [ { position: 10 },
+                  { type: #FOR_ACTION, dataAction: 'TransferBooks', label: 'Transfer books', position: 10 } ]
   BookName;
 
   @UI.identification: [ { position: 20 } ]

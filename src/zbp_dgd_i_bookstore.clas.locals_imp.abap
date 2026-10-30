@@ -82,6 +82,8 @@ CLASS lhc_bookstore DEFINITION
 
     METHODS restockbook FOR MODIFY
       keys FOR ACTION bookstore~restockbook.
+    METHODS precheck_restockbook FOR PRECHECK
+      keys FOR ACTION bookstore~restockbook.
     METHODS earlynumbering_cba_books FOR NUMBERING
       entities FOR CREATE bookstore\_books.
 
@@ -333,17 +335,10 @@ CLASS lhc_bookstore IMPLEMENTATION.
                                                    TargetStock    = target_stock ) ) ) ).
   ENDMETHOD.
 
-  METHOD ReStockBook.
+  METHOD precheck_restockbook.
     DATA request          TYPE STRUCTURE FOR ACTION IMPORT zdgd_i_bookstore\\bookstore~restockbook.
     DATA master_candidate TYPE lif_book_validation=>master_candidate.
     DATA invalid_books    TYPE lif_book_validation=>master_findings.
-    DATA candidate_keys   TYPE lif_book_validation=>book_keys.
-    DATA books            TYPE TABLE FOR READ RESULT zdgd_i_bookstore\\Book.
-    DATA updates          TYPE TABLE FOR UPDATE zdgd_i_bookstore\\Book.
-    DATA read_failed      TYPE RESPONSE FOR FAILED EARLY zdgd_i_bookstore.
-    DATA read_reported    TYPE RESPONSE FOR REPORTED EARLY zdgd_i_bookstore.
-    DATA update_failed    TYPE RESPONSE FOR FAILED EARLY zdgd_i_bookstore.
-    DATA update_reported  TYPE RESPONSE FOR REPORTED EARLY zdgd_i_bookstore.
 
     LOOP AT keys INTO request.
       IF request-%param-TargetStock <= request-%param-StockThreshold.
@@ -355,6 +350,7 @@ CLASS lhc_bookstore IMPLEMENTATION.
         CONTINUE.
       ENDIF.
 
+      CLEAR master_candidate.
       SELECT SINGLE FROM zdgd_i_bookmasterdata
         FIELDS BookID, BookName, Author, Language
         WHERE BookID = @request-%param-BookID
@@ -369,9 +365,21 @@ CLASS lhc_bookstore IMPLEMENTATION.
                         %msg = NEW zdgd_bookstore_exception(
                                        textid = zdgd_bookstore_exception=>book_not_in_master_data ) )
                TO reported-bookstore.
-        CONTINUE.
       ENDIF.
+    ENDLOOP.
+  ENDMETHOD.
 
+  METHOD ReStockBook.
+    DATA request         TYPE STRUCTURE FOR ACTION IMPORT zdgd_i_bookstore\\bookstore~restockbook.
+    DATA candidate_keys  TYPE lif_book_validation=>book_keys.
+    DATA books           TYPE TABLE FOR READ RESULT zdgd_i_bookstore\\Book.
+    DATA updates         TYPE TABLE FOR UPDATE zdgd_i_bookstore\\Book.
+    DATA read_failed     TYPE RESPONSE FOR FAILED EARLY zdgd_i_bookstore.
+    DATA read_reported   TYPE RESPONSE FOR REPORTED EARLY zdgd_i_bookstore.
+    DATA update_failed   TYPE RESPONSE FOR FAILED EARLY zdgd_i_bookstore.
+    DATA update_reported TYPE RESPONSE FOR REPORTED EARLY zdgd_i_bookstore.
+
+    LOOP AT keys INTO request.
       SELECT FROM zdgd_i_book
         FIELDS BookstoreID, BookID
         WHERE BookID       = @request-%param-BookID
@@ -439,15 +447,50 @@ CLASS lhc_book DEFINITION
     CONSTANTS state_area_master_data    TYPE string VALUE 'BOOK_MASTER_DATA'.
     CONSTANTS state_area_duplicate_book TYPE string VALUE 'BOOK_ALREADY_EXISTS'.
 
+    METHODS getdefaultsfortransferbook FOR READ
+      keys FOR FUNCTION Book~GetDefaultsForTransferBook RESULT result.
     METHODS exists_in_master_data FOR VALIDATE ON SAVE
       keys FOR Book~exists_in_master_data.
     METHODS no_duplicates_in_bookstore FOR VALIDATE ON SAVE
       keys FOR Book~no_duplicates_in_bookstore.
+    METHODS get_instance_authorizations FOR INSTANCE AUTHORIZATION
+      keys REQUEST requested_authorizations FOR Book RESULT result.
+
+    METHODS TransferBooks FOR MODIFY
+      keys FOR ACTION Book~TransferBooks.
 
 ENDCLASS.
 
 
 CLASS lhc_book IMPLEMENTATION.
+  METHOD getdefaultsfortransferbook.
+    DATA books TYPE TABLE FOR READ RESULT zdgd_i_bookstore\\Book.
+
+    READ ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
+         ENTITY Book
+         FIELDS ( BookstoreID BookID BookName UnitsInStock )
+         WITH CORRESPONDING #( keys )
+         RESULT books.
+
+    LOOP AT keys INTO DATA(request).
+      TRY.
+          DATA(source_book) = books[ KEY id COMPONENTS %tky = request-%tky ].
+        CATCH cx_sy_itab_line_not_found.
+          CONTINUE.
+      ENDTRY.
+
+      APPEND VALUE #( %tky   = request-%tky
+                      %param = VALUE #( ParameterID    = source_book-BookstoreID
+                                        _TransferItems = VALUE #( ( ParameterID       = source_book-BookstoreID
+                                                                    ItemID            = source_book-BookID
+                                                                    SourceBookstoreID = source_book-BookstoreID
+                                                                    SourceBookID      = source_book-BookID
+                                                                    SourceBookName    = source_book-BookName
+                                                                    AvailableStock    = source_book-UnitsInStock ) ) ) )
+             TO result.
+    ENDLOOP.
+  ENDMETHOD.
+
   METHOD exists_in_master_data.
     READ ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
          ENTITY Book
@@ -524,6 +567,12 @@ CLASS lhc_book IMPLEMENTATION.
                                                 textid = zdgd_bookstore_exception=>book_already_exists )
                       %element-BookID = if_abap_behv=>mk-on ) TO reported-book.
     ENDLOOP.
+  ENDMETHOD.
+
+  METHOD get_instance_authorizations.
+  ENDMETHOD.
+
+  METHOD TransferBooks.
   ENDMETHOD.
 
 ENDCLASS.
