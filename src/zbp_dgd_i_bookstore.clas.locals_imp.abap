@@ -447,8 +447,6 @@ CLASS lhc_book DEFINITION
     CONSTANTS state_area_master_data    TYPE string VALUE 'BOOK_MASTER_DATA'.
     CONSTANTS state_area_duplicate_book TYPE string VALUE 'BOOK_ALREADY_EXISTS'.
 
-    METHODS getdefaultsfortransferbook FOR READ
-      keys FOR FUNCTION Book~GetDefaultsForTransferBook RESULT result.
     METHODS exists_in_master_data FOR VALIDATE ON SAVE
       keys FOR Book~exists_in_master_data.
     METHODS no_duplicates_in_bookstore FOR VALIDATE ON SAVE
@@ -456,40 +454,15 @@ CLASS lhc_book DEFINITION
     METHODS get_instance_authorizations FOR INSTANCE AUTHORIZATION
       keys REQUEST requested_authorizations FOR Book RESULT result.
 
-    METHODS TransferBooks FOR MODIFY
-      keys FOR ACTION Book~TransferBooks.
+    METHODS TransferMultipleBooks FOR MODIFY
+      keys FOR ACTION Book~TransferMultipleBooks.
+    METHODS TransferBook FOR MODIFY
+      keys FOR ACTION Book~TransferBook.
 
 ENDCLASS.
 
 
 CLASS lhc_book IMPLEMENTATION.
-  METHOD getdefaultsfortransferbook.
-    DATA books TYPE TABLE FOR READ RESULT zdgd_i_bookstore\\Book.
-
-    READ ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
-         ENTITY Book
-         FIELDS ( BookstoreID BookID BookName UnitsInStock )
-         WITH CORRESPONDING #( keys )
-         RESULT books.
-
-    LOOP AT keys INTO DATA(request).
-      TRY.
-          DATA(source_book) = books[ KEY id COMPONENTS %tky = request-%tky ].
-        CATCH cx_sy_itab_line_not_found.
-          CONTINUE.
-      ENDTRY.
-
-      APPEND VALUE #( %tky   = request-%tky
-                      %param = VALUE #( ParameterID    = source_book-BookstoreID
-                                        _TransferItems = VALUE #( ( ParameterID       = source_book-BookstoreID
-                                                                    ItemID            = source_book-BookID
-                                                                    SourceBookstoreID = source_book-BookstoreID
-                                                                    SourceBookID      = source_book-BookID
-                                                                    SourceBookName    = source_book-BookName
-                                                                    AvailableStock    = source_book-UnitsInStock ) ) ) )
-             TO result.
-    ENDLOOP.
-  ENDMETHOD.
 
   METHOD exists_in_master_data.
     READ ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
@@ -572,7 +545,10 @@ CLASS lhc_book IMPLEMENTATION.
   METHOD get_instance_authorizations.
   ENDMETHOD.
 
-  METHOD TransferBooks.
+  METHOD TransferMultipleBooks.
+  ENDMETHOD.
+
+  METHOD TransferBook.
   ENDMETHOD.
 
 ENDCLASS.
@@ -675,4 +651,3 @@ CLASS lcl_book_validation IMPLEMENTATION.
   ENDMETHOD.
 
 ENDCLASS.
-

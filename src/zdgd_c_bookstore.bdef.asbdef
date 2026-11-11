@@ -2,7 +2,7 @@ projection;
 strict ( 2 );
 use draft;
 
-define behavior for ZDGD_C_BOOKSTORE alias Bookstore
+define behavior for ZDGD_C_Bookstore alias Bookstore
 {
   use create;
   use update;
@@ -20,13 +20,12 @@ define behavior for ZDGD_C_BOOKSTORE alias Bookstore
   use association _Books { create; with draft; }
 }
 
-define behavior for ZDGD_C_BOOK alias Book
+define behavior for ZDGD_C_Book alias Book
 {
   use update;
   use delete;
 
-  use action TransferBooks;
-  use function GetDefaultsForTransferBook;
+  use action TransferBook;
 
   use association _Bookstore { with draft; }
 }

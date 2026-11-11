@@ -46,7 +46,10 @@ authorization dependent by _Bookstore
   field ( mandatory : create, readonly : update ) Author;
   field ( mandatory : create, readonly : update ) Language;
 
-  action TransferBooks deep parameter ZDGD_D_TransferBookParam { default function GetDefaultsForTransferBook; }
+  //The deep parameter allows transfering a book to multiple target bookstores
+  internal action TransferMultipleBooks deep parameter ZDGD_D_TransferBookParam;
+
+  action TransferBook parameter ZDGD_D_TransferSingleBookParam;
 
   validation exists_in_master_data on save { create; }
   validation no_duplicates_in_bookstore on save { create; }

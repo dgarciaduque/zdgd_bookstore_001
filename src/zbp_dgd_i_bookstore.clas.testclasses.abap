@@ -816,7 +816,6 @@ CLASS ltcl_book_master_data DEFINITION FINAL
     METHODS teardown.
 
     METHODS active_master_passes           FOR TESTING.
-    METHODS transfer_defaults_match_source FOR TESTING.
     METHODS missing_master_fails           FOR TESTING.
     METHODS initial_id_fails               FOR TESTING.
     METHODS mixed_batch_fails_only_missing FOR TESTING.
@@ -866,37 +865,6 @@ ENDCLASS.
 
 
 CLASS ltcl_book_master_data IMPLEMENTATION.
-  METHOD transfer_defaults_match_source.
-    DATA defaults TYPE TABLE FOR FUNCTION RESULT zdgd_i_bookstore\\Book~GetDefaultsForTransferBook.
-
-    given_master_details( ).
-    given_book( book_id   = master_book_id
-                book_name = 'Master Book'
-                author    = 'Master Author'
-                language  = 'E' ).
-
-    cut->getdefaultsfortransferbook(
-      EXPORTING keys = CORRESPONDING #( book_keys )
-      CHANGING result = defaults ).
-
-    cl_abap_unit_assert=>assert_equals( exp = 1 act = lines( defaults ) ).
-    cl_abap_unit_assert=>assert_equals( exp = book_keys[ 1 ]-%tky act = defaults[ 1 ]-%tky ).
-    cl_abap_unit_assert=>assert_equals( exp = book_keys[ 1 ]-BookstoreID
-                                        act = defaults[ 1 ]-%param-ParameterID ).
-    cl_abap_unit_assert=>assert_equals( exp = 1 act = lines( defaults[ 1 ]-%param-_TransferItems ) ).
-    cl_abap_unit_assert=>assert_equals( exp = book_keys[ 1 ]-BookstoreID
-                                        act = defaults[ 1 ]-%param-_TransferItems[ 1 ]-SourceBookstoreID ).
-    cl_abap_unit_assert=>assert_equals( exp = book_keys[ 1 ]-BookstoreID
-                      act = defaults[ 1 ]-%param-_TransferItems[ 1 ]-ParameterID ).
-    cl_abap_unit_assert=>assert_equals( exp = master_book_id
-                                        act = defaults[ 1 ]-%param-_TransferItems[ 1 ]-SourceBookID ).
-    cl_abap_unit_assert=>assert_equals( exp = master_book_id
-                      act = defaults[ 1 ]-%param-_TransferItems[ 1 ]-ItemID ).
-    cl_abap_unit_assert=>assert_equals( exp = 'Master Book'
-                                        act = defaults[ 1 ]-%param-_TransferItems[ 1 ]-SourceBookName ).
-    cl_abap_unit_assert=>assert_equals( exp = 0
-                      act = defaults[ 1 ]-%param-_TransferItems[ 1 ]-AvailableStock ).
-  ENDMETHOD.
 
   METHOD helper_mixed_master_batch.
     given_master_details( ).
@@ -1498,4 +1466,3 @@ CLASS ltcl_book_master_data IMPLEMENTATION.
              NEXT count = count + 1 ).
   ENDMETHOD.
 ENDCLASS.
-
