@@ -66,6 +66,77 @@ CLASS lcl_book_validation DEFINITION CREATE PRIVATE.
     CLASS-DATA self TYPE REF TO lcl_book_validation.
 ENDCLASS.
 
+
+INTERFACE lif_book_stock_handling.
+  TYPES: BEGIN OF response_early,
+           failed   TYPE RESPONSE FOR FAILED EARLY zdgd_i_bookstore,
+           reported TYPE RESPONSE FOR REPORTED EARLY zdgd_i_bookstore,
+         END OF response_early.
+
+  METHODS transfer_book IMPORTING source_bookstore  TYPE zdgd_i_book-BookstoreID
+                                  book              TYPE zdgd_i_book-BookID
+                                  target_bookstore  TYPE zdgd_i_book-BookstoreID
+                                  units_to_transfer TYPE zdgd_i_book-UnitsInStock
+                        RETURNING VALUE(result)     TYPE response_early
+                        RAISING   zdgd_bookstore_exception.
+ENDINTERFACE.
+
+
+CLASS lcl_book_stock_handling DEFINITION CREATE PRIVATE.
+  PUBLIC SECTION.
+    INTERFACES lif_book_stock_handling.
+
+    CLASS-METHODS get_instance
+      RETURNING VALUE(result) TYPE REF TO lif_book_stock_handling.
+
+  PRIVATE SECTION.
+    CLASS-DATA self TYPE REF TO lcl_book_stock_handling.
+
+ ENDCLASS.
+
+CLASS lcl_book_stock_handling IMPLEMENTATION.
+  METHOD get_instance.
+    IF self IS NOT BOUND.
+      self = NEW #( ).
+    ENDIF.
+    result = self.
+  ENDMETHOD.
+
+  METHOD lif_book_stock_handling~transfer_book.
+    READ ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
+         ENTITY Book
+         FIELDS ( BookstoreID BookID UnitsInStock )
+         WITH VALUE #( BookID    = book
+                       %is_draft = if_abap_behv=>mk-off
+                       ( BookstoreID = source_bookstore )
+                       ( BookstoreID = target_bookstore ) )
+         RESULT DATA(initial_book_stock).
+    DATA(source_book) = initial_book_stock[ KEY entity
+                                            BookstoreID = source_bookstore
+                                            BookID      = book ].
+    DATA(target_book) = initial_book_stock[ KEY entity
+                                            BookstoreID = target_bookstore ].
+    IF units_to_transfer > source_book-UnitsInStock.
+      RAISE EXCEPTION NEW zdgd_bookstore_exception( textid   = zdgd_bookstore_exception=>insufficient_stock
+                                                    severity = if_abap_behv_message=>severity-error ).
+    ENDIF.
+
+    MODIFY ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
+           ENTITY Book
+           UPDATE FIELDS ( UnitsInStock )
+           WITH VALUE #( BookID = book
+                         ( BookstoreID  = source_bookstore
+                           UnitsInStock = source_book-UnitsInStock - units_to_transfer )
+                         ( BookstoreID  = target_bookstore
+                           UnitsInStock = target_book-UnitsInStock + units_to_transfer ) )
+           FAILED DATA(failed)
+           REPORTED DATA(reported).
+    result-failed   = failed.
+    result-reported = reported.
+  ENDMETHOD.
+
+ENDCLASS.
+
 CLASS lhc_bookstore DEFINITION
   INHERITING FROM cl_abap_behavior_handler
   FRIENDS ltcl_book_numbering.
@@ -546,6 +617,60 @@ CLASS lhc_book IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD TransferMultipleBooks.
+    TYPES: BEGIN OF book_key,
+             BookstoreID TYPE zdgd_i_book-BookstoreID,
+             BookID      TYPE zdgd_i_book-BookID,
+           END OF book_key.
+    TYPES book_keys TYPE STANDARD TABLE OF book_key WITH EMPTY KEY.
+
+    READ ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
+         ENTITY Book
+         FIELDS ( BookstoreID BookID UnitsInStock )
+         WITH CORRESPONDING #( keys )
+         RESULT DATA(source_books).
+
+    " TODO: variable is assigned but only used in commented-out code (ABAP cleaner)
+    DATA(target_bookstores_key) = VALUE book_keys( FOR book IN keys
+                                                   FOR target_bookstore IN book-%param-_transferitems
+                                                   ( BookstoreID = target_bookstore-TargetBookstoreID
+                                                     BookID      = book-BookID ) ).
+    LOOP AT keys INTO DATA(key).
+      DATA(total_units_to_transfer) = 0.
+      LOOP AT key-%param-_transferitems INTO DATA(transfer_item).
+        total_units_to_transfer += transfer_item-UnitsToTransfer.
+      ENDLOOP.
+      DATA(available_stock) = source_books[ KEY entity
+                                            BookstoreID = key-BookstoreID
+                                            BookID      = key-BookID ]-UnitsInStock.
+      IF total_units_to_transfer > available_stock.
+        APPEND VALUE #( %key                          = key-%key
+                        %action-transfermultiplebooks = if_abap_behv=>mk-on  ) TO failed-book.
+        APPEND VALUE #( %key = key-%key
+                        %msg = NEW zdgd_bookstore_exception( textid   = zdgd_bookstore_exception=>insufficient_stock
+                                                             severity = if_abap_behv_message=>severity-error ) ) TO reported-book.
+        RETURN.
+      ENDIF.
+      LOOP AT key-%param-_transferitems INTO transfer_item.
+        TRY.
+            DATA(early_response) = lcl_book_stock_handling=>get_instance( )->transfer_book(
+                                       source_bookstore  = key-bookstoreid
+                                       book              = key-bookid
+                                       target_bookstore  = transfer_item-targetbookstoreid
+                                       units_to_transfer = transfer_item-unitstotransfer ).
+          CATCH zdgd_bookstore_exception INTO DATA(bookstore_exception).
+            APPEND VALUE #( %key                          = key-%key
+                            %action-transfermultiplebooks = if_abap_behv=>mk-on  ) TO failed-book.
+            APPEND VALUE #( %key = key-%key
+                            %msg = bookstore_exception ) TO reported-book.
+            RETURN.
+        ENDTRY.
+        failed = early_response-failed.
+        reported = early_response-reported.
+        IF failed IS NOT INITIAL.
+          RETURN.
+        ENDIF.
+      ENDLOOP.
+    ENDLOOP.
   ENDMETHOD.
 
   METHOD TransferBook.

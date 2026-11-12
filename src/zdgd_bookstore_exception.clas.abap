@@ -56,6 +56,15 @@ CLASS zdgd_bookstore_exception DEFINITION
                  attr3 TYPE scx_attrname VALUE '',
                  attr4 TYPE scx_attrname VALUE '',
                END OF no_restock_candidates.
+    CONSTANTS: BEGIN OF insufficient_stock,
+                 msgid TYPE symsgid      VALUE 'ZDGD_BOOKSTORE',
+                 msgno TYPE symsgno      VALUE '008',
+                 attr1 TYPE scx_attrname VALUE '',
+                 attr2 TYPE scx_attrname VALUE '',
+                 attr3 TYPE scx_attrname VALUE '',
+                 attr4 TYPE scx_attrname VALUE '',
+               END OF insufficient_stock.
+
     METHODS constructor
       IMPORTING textid    LIKE if_t100_message=>t100key         OPTIONAL
                 !previous LIKE previous                         OPTIONAL
@@ -79,4 +88,3 @@ CLASS zdgd_bookstore_exception IMPLEMENTATION.
     if_abap_behv_message~m_severity = severity.
   ENDMETHOD.
 ENDCLASS.
-

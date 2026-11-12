@@ -50,6 +50,12 @@
      <MSGNR>007</MSGNR>
      <TEXT>&amp;1 inventory entries restocked to &amp;2 units.</TEXT>
     </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZDGD_BOOKSTORE</ARBGB>
+     <MSGNR>008</MSGNR>
+     <TEXT>The available stock is insufficient for the transfer</TEXT>
+    </T100>
    </T100>
   </asx:values>
  </asx:abap>
