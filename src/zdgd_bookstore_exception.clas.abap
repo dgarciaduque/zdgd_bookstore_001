@@ -64,6 +64,14 @@ CLASS zdgd_bookstore_exception DEFINITION
                  attr3 TYPE scx_attrname VALUE '',
                  attr4 TYPE scx_attrname VALUE '',
                END OF insufficient_stock.
+    CONSTANTS: BEGIN OF no_draft_instances_allowed,
+                 msgid TYPE symsgid      VALUE 'ZDGD_BOOKSTORE',
+                 msgno TYPE symsgno      VALUE '009',
+                 attr1 TYPE scx_attrname VALUE '',
+                 attr2 TYPE scx_attrname VALUE '',
+                 attr3 TYPE scx_attrname VALUE '',
+                 attr4 TYPE scx_attrname VALUE '',
+               END OF no_draft_instances_allowed.
 
     METHODS constructor
       IMPORTING textid    LIKE if_t100_message=>t100key         OPTIONAL

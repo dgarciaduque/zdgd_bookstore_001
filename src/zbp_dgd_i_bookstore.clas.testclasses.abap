@@ -838,6 +838,8 @@ CLASS ltcl_book_master_data DEFINITION FINAL
     METHODS book_duplicate_fails           FOR TESTING.
     METHODS mixed_duplicate_batch          FOR TESTING.
     METHODS book_other_store_passes        FOR TESTING.
+    METHODS transfer_creates_target FOR TESTING.
+    METHODS transfer_failure_atomic FOR TESTING.
     METHODS different_book_passes FOR TESTING.
     METHODS draft_details_mismatch         FOR TESTING.
     METHODS new_draft_language_changed     FOR TESTING.
@@ -865,6 +867,162 @@ ENDCLASS.
 
 
 CLASS ltcl_book_master_data IMPLEMENTATION.
+
+  METHOD transfer_creates_target.
+    DATA existing_target_store TYPE zdgd_i_bookstore-BookstoreID.
+    DATA new_target_store      TYPE zdgd_i_bookstore-BookstoreID.
+
+    given_master_details( ).
+    given_book( book_id   = master_book_id
+                book_name = 'Master Book'
+                author    = 'Master Author'
+                language  = 'E' ).
+
+    MODIFY ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
+           ENTITY Bookstore CREATE FIELDS ( BookstoreName City )
+           WITH VALUE #( ( %cid          = 'EXISTING_STORE'
+                           %is_draft     = if_abap_behv=>mk-off
+                           BookstoreName = 'Existing Target'
+                           City          = 'Target City A' )
+                         ( %cid          = 'NEW_STORE'
+                           %is_draft     = if_abap_behv=>mk-off
+                           BookstoreName = 'New Target'
+                           City          = 'Target City B' ) )
+           MAPPED DATA(mapped_stores)
+           FAILED DATA(store_failed).
+    cl_abap_unit_assert=>assert_initial( store_failed ).
+    existing_target_store = mapped_stores-bookstore[ KEY cid COMPONENTS %cid = 'EXISTING_STORE' ]-BookstoreID.
+    new_target_store = mapped_stores-bookstore[ KEY cid COMPONENTS %cid = 'NEW_STORE' ]-BookstoreID.
+
+    MODIFY ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
+           ENTITY Bookstore CREATE BY \_Books
+           FIELDS ( BookID BookName Author Language UnitsInStock )
+           WITH VALUE #( ( BookstoreID = existing_target_store
+                           %is_draft   = if_abap_behv=>mk-off
+                           %target = VALUE #( ( %cid         = 'EXISTING_BOOK'
+                                                %is_draft    = if_abap_behv=>mk-off
+                                                BookID       = master_book_id
+                                                BookName     = 'Master Book'
+                                                Author       = 'Master Author'
+                                                Language     = 'E'
+                                                UnitsInStock = 4 ) ) ) )
+           FAILED DATA(existing_book_failed).
+    cl_abap_unit_assert=>assert_initial( existing_book_failed ).
+
+    MODIFY ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
+           ENTITY Book UPDATE FIELDS ( UnitsInStock )
+           WITH VALUE #( ( BookstoreID  = book_keys[ 1 ]-BookstoreID
+                           BookID       = master_book_id
+                           %is_draft    = if_abap_behv=>mk-off
+                           UnitsInStock = 10 ) )
+           FAILED DATA(source_update_failed).
+    cl_abap_unit_assert=>assert_initial( source_update_failed ).
+
+    DATA(transfer_response) = lcl_book_stock_handling=>get_instance( )->transfer_book(
+      source_bookstore = book_keys[ 1 ]-BookstoreID
+      book = master_book_id
+      targets = VALUE #( ( target_bookstore = existing_target_store units_to_transfer = 2 )
+                         ( target_bookstore = new_target_store units_to_transfer = 3 ) ) ).
+    cl_abap_unit_assert=>assert_initial( transfer_response-failed ).
+
+    READ ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
+         ENTITY Book FIELDS ( BookstoreID BookID BookName Author Language UnitsInStock )
+         WITH VALUE #( ( BookstoreID = book_keys[ 1 ]-BookstoreID
+                         BookID = master_book_id
+                         %is_draft = if_abap_behv=>mk-off )
+                       ( BookstoreID = existing_target_store
+                         BookID = master_book_id
+                         %is_draft = if_abap_behv=>mk-off )
+                       ( BookstoreID = new_target_store
+                         BookID = master_book_id
+                         %is_draft = if_abap_behv=>mk-off ) )
+         RESULT DATA(final_books)
+         FAILED DATA(read_failed).
+    cl_abap_unit_assert=>assert_initial( read_failed ).
+    cl_abap_unit_assert=>assert_equals( exp = 5 act = final_books[ KEY entity
+                                                                    BookstoreID = book_keys[ 1 ]-BookstoreID
+                                                                    BookID = master_book_id ]-UnitsInStock ).
+    cl_abap_unit_assert=>assert_equals( exp = 6 act = final_books[ KEY entity
+                                                                    BookstoreID = existing_target_store
+                                                                    BookID = master_book_id ]-UnitsInStock ).
+    cl_abap_unit_assert=>assert_equals( exp = 3 act = final_books[ KEY entity
+                                                                    BookstoreID = new_target_store
+                                                                    BookID = master_book_id ]-UnitsInStock ).
+    cl_abap_unit_assert=>assert_equals( exp = 'Master Book'
+                                        act = final_books[ KEY entity
+                                                           BookstoreID = new_target_store
+                                                           BookID = master_book_id ]-BookName ).
+  ENDMETHOD.
+
+  METHOD transfer_failure_atomic.
+    DATA existing_target_store TYPE zdgd_i_bookstore-BookstoreID.
+
+    given_master_details( ).
+    given_book( book_id   = master_book_id
+                book_name = 'Master Book'
+                author    = 'Master Author'
+                language  = 'E' ).
+
+    MODIFY ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
+           ENTITY Bookstore CREATE FIELDS ( BookstoreName City )
+           WITH VALUE #( ( %cid          = 'EXISTING_STORE'
+                           %is_draft     = if_abap_behv=>mk-off
+                           BookstoreName = 'Existing Target'
+                           City          = 'Target City' ) )
+           MAPPED DATA(mapped_stores)
+           FAILED DATA(store_failed).
+    cl_abap_unit_assert=>assert_initial( store_failed ).
+    existing_target_store = mapped_stores-bookstore[ KEY cid COMPONENTS %cid = 'EXISTING_STORE' ]-BookstoreID.
+
+    MODIFY ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
+           ENTITY Bookstore CREATE BY \_Books
+           FIELDS ( BookID BookName Author Language UnitsInStock )
+           WITH VALUE #( ( BookstoreID = existing_target_store
+                           %is_draft   = if_abap_behv=>mk-off
+                           %target = VALUE #( ( %cid         = 'EXISTING_BOOK'
+                                                %is_draft    = if_abap_behv=>mk-off
+                                                BookID       = master_book_id
+                                                BookName     = 'Master Book'
+                                                Author       = 'Master Author'
+                                                Language     = 'E'
+                                                UnitsInStock = 4 ) ) ) )
+           FAILED DATA(existing_book_failed).
+    cl_abap_unit_assert=>assert_initial( existing_book_failed ).
+
+    MODIFY ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
+           ENTITY Book UPDATE FIELDS ( UnitsInStock )
+           WITH VALUE #( ( BookstoreID  = book_keys[ 1 ]-BookstoreID
+                           BookID       = master_book_id
+                           %is_draft    = if_abap_behv=>mk-off
+                           UnitsInStock = 10 ) )
+           FAILED DATA(source_update_failed).
+    cl_abap_unit_assert=>assert_initial( source_update_failed ).
+
+    DATA(transfer_response) = lcl_book_stock_handling=>get_instance( )->transfer_book(
+      source_bookstore = book_keys[ 1 ]-BookstoreID
+      book = master_book_id
+      targets = VALUE #( ( target_bookstore = existing_target_store units_to_transfer = 2 )
+                         ( target_bookstore = missing_book_id units_to_transfer = 3 ) ) ).
+    cl_abap_unit_assert=>assert_not_initial( transfer_response-failed ).
+
+    READ ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
+         ENTITY Book FIELDS ( UnitsInStock )
+         WITH VALUE #( ( BookstoreID = book_keys[ 1 ]-BookstoreID
+                         BookID = master_book_id
+                         %is_draft = if_abap_behv=>mk-off )
+                       ( BookstoreID = existing_target_store
+                         BookID = master_book_id
+                         %is_draft = if_abap_behv=>mk-off ) )
+         RESULT DATA(unchanged_books)
+         FAILED DATA(read_failed).
+    cl_abap_unit_assert=>assert_initial( read_failed ).
+    cl_abap_unit_assert=>assert_equals( exp = 10 act = unchanged_books[ KEY entity
+                                                                         BookstoreID = book_keys[ 1 ]-BookstoreID
+                                                                         BookID = master_book_id ]-UnitsInStock ).
+    cl_abap_unit_assert=>assert_equals( exp = 4 act = unchanged_books[ KEY entity
+                                                                        BookstoreID = existing_target_store
+                                                                        BookID = master_book_id ]-UnitsInStock ).
+  ENDMETHOD.
 
   METHOD helper_mixed_master_batch.
     given_master_details( ).

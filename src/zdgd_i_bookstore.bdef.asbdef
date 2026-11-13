@@ -46,7 +46,8 @@ authorization dependent by _Bookstore
   field ( mandatory : create, readonly : update ) Author;
   field ( mandatory : create, readonly : update ) Language;
 
-  //The deep parameter allows transfering a book to multiple target bookstores
+  //The deep parameter allows partial transfers to multiple target bookstores
+  //Precheck is not allowed for internal actions, so validations are embedded in the action implementation
   internal action TransferMultipleBooks deep parameter ZDGD_D_TransferBookParam;
 
   action TransferBook parameter ZDGD_D_TransferSingleBookParam;

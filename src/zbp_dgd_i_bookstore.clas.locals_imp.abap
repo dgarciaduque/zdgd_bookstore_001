@@ -68,16 +68,21 @@ ENDCLASS.
 
 
 INTERFACE lif_book_stock_handling.
+  TYPES: BEGIN OF transfer_target,
+           target_bookstore  TYPE zdgd_i_book-BookstoreID,
+           units_to_transfer TYPE zdgd_i_book-UnitsInStock,
+         END OF transfer_target.
+  TYPES transfer_targets TYPE STANDARD TABLE OF transfer_target WITH EMPTY KEY.
+
   TYPES: BEGIN OF response_early,
            failed   TYPE RESPONSE FOR FAILED EARLY zdgd_i_bookstore,
            reported TYPE RESPONSE FOR REPORTED EARLY zdgd_i_bookstore,
          END OF response_early.
 
-  METHODS transfer_book IMPORTING source_bookstore  TYPE zdgd_i_book-BookstoreID
-                                  book              TYPE zdgd_i_book-BookID
-                                  target_bookstore  TYPE zdgd_i_book-BookstoreID
-                                  units_to_transfer TYPE zdgd_i_book-UnitsInStock
-                        RETURNING VALUE(result)     TYPE response_early
+  METHODS transfer_book IMPORTING source_bookstore TYPE zdgd_i_book-BookstoreID
+                                  book             TYPE zdgd_i_book-BookID
+                                  targets          TYPE transfer_targets
+                        RETURNING VALUE(result)    TYPE response_early
                         RAISING   zdgd_bookstore_exception.
 ENDINTERFACE.
 
@@ -103,36 +108,113 @@ CLASS lcl_book_stock_handling IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD lif_book_stock_handling~transfer_book.
+      TYPES: BEGIN OF target_total,
+         target_bookstore  TYPE zdgd_i_book-BookstoreID,
+         units_to_transfer TYPE int8,
+       END OF target_total.
+      TYPES target_totals TYPE HASHED TABLE OF target_total WITH UNIQUE KEY target_bookstore.
+
+      DATA target_totals TYPE target_totals.
+      DATA updates TYPE TABLE FOR UPDATE zdgd_i_bookstore\\Book.
+      DATA creates TYPE TABLE FOR CREATE zdgd_i_bookstore\\Bookstore\_Books.
+
     READ ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
          ENTITY Book
-         FIELDS ( BookstoreID BookID UnitsInStock )
-         WITH VALUE #( BookID    = book
-                       %is_draft = if_abap_behv=>mk-off
-                       ( BookstoreID = source_bookstore )
-                       ( BookstoreID = target_bookstore ) )
-         RESULT DATA(initial_book_stock).
+         FIELDS ( BookstoreID BookID BookName Author Language UnitsInStock )
+        WITH VALUE #( ( BookstoreID = source_bookstore
+            BookID      = book
+            %is_draft   = if_abap_behv=>mk-off ) )
+         RESULT DATA(initial_book_stock)
+         FAILED result-failed
+         REPORTED result-reported.
+    IF result-failed IS NOT INITIAL.
+      RETURN.
+    ENDIF.
+
     DATA(source_book) = initial_book_stock[ KEY entity
                                             BookstoreID = source_bookstore
                                             BookID      = book ].
-    DATA(target_book) = initial_book_stock[ KEY entity
-                                            BookstoreID = target_bookstore ].
-    IF units_to_transfer > source_book-UnitsInStock.
+
+    LOOP AT targets INTO DATA(target).
+      DATA(target_ref) = REF #( target_totals[ target_bookstore = target-target_bookstore ] OPTIONAL ).
+      IF target_ref IS BOUND.
+        target_ref->units_to_transfer += target-units_to_transfer.
+      ELSE.
+        INSERT VALUE #( target_bookstore = target-target_bookstore
+                        units_to_transfer = target-units_to_transfer ) INTO TABLE target_totals.
+      ENDIF.
+    ENDLOOP.
+
+    DATA(total_units_to_transfer) = REDUCE int8(
+      INIT total = 0
+      FOR target_for_sum IN target_totals
+      NEXT total += target_for_sum-units_to_transfer ).
+    IF total_units_to_transfer > source_book-UnitsInStock.
       RAISE EXCEPTION NEW zdgd_bookstore_exception( textid   = zdgd_bookstore_exception=>insufficient_stock
                                                     severity = if_abap_behv_message=>severity-error ).
     ENDIF.
 
+    READ ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
+         ENTITY Bookstore FIELDS ( BookstoreID )
+         WITH VALUE #( FOR target_for_read IN target_totals
+                       ( BookstoreID = target_for_read-target_bookstore
+                         %is_draft   = if_abap_behv=>mk-off ) )
+         RESULT DATA(target_stores).
+    LOOP AT target_totals INTO DATA(target_for_validate).
+      IF NOT line_exists( target_stores[ KEY entity
+                                         BookstoreID = target_for_validate-target_bookstore ] ).
+        APPEND VALUE #( BookstoreID = target_for_validate-target_bookstore
+                        %is_draft   = if_abap_behv=>mk-off
+                        %fail-cause = if_abap_behv=>cause-not_found ) TO result-failed-bookstore.
+      ENDIF.
+    ENDLOOP.
+    IF result-failed-bookstore IS NOT INITIAL.
+      RETURN.
+    ENDIF.
+
+    READ ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
+         ENTITY Book
+         FIELDS ( BookstoreID BookID UnitsInStock )
+         WITH VALUE #( FOR target_total_row IN target_totals
+                       ( BookstoreID = target_total_row-target_bookstore
+                         BookID      = book
+                         %is_draft   = if_abap_behv=>mk-off ) )
+         RESULT DATA(target_books).
+
+    updates = VALUE #( ( BookstoreID  = source_bookstore
+                         BookID       = book
+                         %is_draft    = if_abap_behv=>mk-off
+                         UnitsInStock = source_book-UnitsInStock - total_units_to_transfer ) ).
+    LOOP AT target_totals INTO DATA(target_for_apply).
+      DATA(existing_target) = VALUE #( target_books[ KEY entity
+                                                      BookstoreID = target_for_apply-target_bookstore
+                                                      BookID      = book ] OPTIONAL ).
+      IF existing_target IS INITIAL.
+        APPEND VALUE #( BookstoreID = target_for_apply-target_bookstore
+                        %is_draft   = if_abap_behv=>mk-off
+                        %target     = VALUE #( ( %cid         = |TRANSFER{ sy-tabix }|
+                                                 %is_draft    = if_abap_behv=>mk-off
+                                                 BookID       = book
+                                                 BookName     = source_book-BookName
+                                                 Author       = source_book-Author
+                                                 Language     = source_book-Language
+                                                 UnitsInStock = target_for_apply-units_to_transfer ) ) )
+               TO creates.
+      ELSE.
+        APPEND VALUE #( BookstoreID  = target_for_apply-target_bookstore
+                        BookID       = book
+                        %is_draft    = if_abap_behv=>mk-off
+                        UnitsInStock = existing_target-UnitsInStock + target_for_apply-units_to_transfer )
+               TO updates.
+      ENDIF.
+    ENDLOOP.
+
     MODIFY ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
-           ENTITY Book
-           UPDATE FIELDS ( UnitsInStock )
-           WITH VALUE #( BookID = book
-                         ( BookstoreID  = source_bookstore
-                           UnitsInStock = source_book-UnitsInStock - units_to_transfer )
-                         ( BookstoreID  = target_bookstore
-                           UnitsInStock = target_book-UnitsInStock + units_to_transfer ) )
-           FAILED DATA(failed)
-           REPORTED DATA(reported).
-    result-failed   = failed.
-    result-reported = reported.
+           ENTITY Book UPDATE FIELDS ( UnitsInStock ) WITH updates
+           ENTITY Bookstore CREATE BY \_Books
+             FIELDS ( BookID BookName Author Language UnitsInStock ) WITH creates
+           FAILED result-failed
+           REPORTED result-reported.
   ENDMETHOD.
 
 ENDCLASS.
@@ -614,62 +696,44 @@ CLASS lhc_book IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD get_instance_authorizations.
+
   ENDMETHOD.
 
   METHOD TransferMultipleBooks.
-    TYPES: BEGIN OF book_key,
-             BookstoreID TYPE zdgd_i_book-BookstoreID,
-             BookID      TYPE zdgd_i_book-BookID,
-           END OF book_key.
-    TYPES book_keys TYPE STANDARD TABLE OF book_key WITH EMPTY KEY.
-
-    READ ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
-         ENTITY Book
-         FIELDS ( BookstoreID BookID UnitsInStock )
-         WITH CORRESPONDING #( keys )
-         RESULT DATA(source_books).
-
-    " TODO: variable is assigned but only used in commented-out code (ABAP cleaner)
-    DATA(target_bookstores_key) = VALUE book_keys( FOR book IN keys
-                                                   FOR target_bookstore IN book-%param-_transferitems
-                                                   ( BookstoreID = target_bookstore-TargetBookstoreID
-                                                     BookID      = book-BookID ) ).
-    LOOP AT keys INTO DATA(key).
-      DATA(total_units_to_transfer) = 0.
-      LOOP AT key-%param-_transferitems INTO DATA(transfer_item).
-        total_units_to_transfer += transfer_item-UnitsToTransfer.
-      ENDLOOP.
-      DATA(available_stock) = source_books[ KEY entity
-                                            BookstoreID = key-BookstoreID
-                                            BookID      = key-BookID ]-UnitsInStock.
-      IF total_units_to_transfer > available_stock.
-        APPEND VALUE #( %key                          = key-%key
-                        %action-transfermultiplebooks = if_abap_behv=>mk-on  ) TO failed-book.
-        APPEND VALUE #( %key = key-%key
-                        %msg = NEW zdgd_bookstore_exception( textid   = zdgd_bookstore_exception=>insufficient_stock
-                                                             severity = if_abap_behv_message=>severity-error ) ) TO reported-book.
-        RETURN.
+    LOOP AT keys INTO DATA(key) USING KEY id WHERE %is_draft = if_abap_behv=>mk-on.
+      APPEND VALUE #( %key                          = key-%key
+                      %action-transfermultiplebooks = if_abap_behv=>mk-on  ) TO failed-book.
+      APPEND VALUE #(
+          %key = key-%key
+          %msg = NEW zdgd_bookstore_exception( textid   = zdgd_bookstore_exception=>no_draft_instances_allowed
+                                               severity = if_abap_behv_message=>severity-error ) ) TO reported-book.
+    ENDLOOP.
+    LOOP AT keys INTO key.
+      IF key-%is_draft = if_abap_behv=>mk-on.
+        CONTINUE.
       ENDIF.
-      LOOP AT key-%param-_transferitems INTO transfer_item.
-        TRY.
-            DATA(early_response) = lcl_book_stock_handling=>get_instance( )->transfer_book(
-                                       source_bookstore  = key-bookstoreid
-                                       book              = key-bookid
-                                       target_bookstore  = transfer_item-targetbookstoreid
-                                       units_to_transfer = transfer_item-unitstotransfer ).
-          CATCH zdgd_bookstore_exception INTO DATA(bookstore_exception).
-            APPEND VALUE #( %key                          = key-%key
-                            %action-transfermultiplebooks = if_abap_behv=>mk-on  ) TO failed-book.
-            APPEND VALUE #( %key = key-%key
-                            %msg = bookstore_exception ) TO reported-book.
-            RETURN.
-        ENDTRY.
-        failed = early_response-failed.
-        reported = early_response-reported.
-        IF failed IS NOT INITIAL.
-          RETURN.
-        ENDIF.
-      ENDLOOP.
+      TRY.
+          DATA(early_response) = lcl_book_stock_handling=>get_instance( )->transfer_book(
+            source_bookstore = key-BookstoreID
+            book = key-BookID
+            targets = VALUE #( FOR item IN key-%param-_TransferItems
+                               ( target_bookstore = item-TargetBookstoreID
+                                 units_to_transfer = item-UnitsToTransfer ) ) ).
+        CATCH zdgd_bookstore_exception INTO DATA(bookstore_exception).
+          APPEND VALUE #( %key = key-%key
+                          %action-transfermultiplebooks = if_abap_behv=>mk-on ) TO failed-book.
+          APPEND VALUE #( %key = key-%key %msg = bookstore_exception ) TO reported-book.
+          CONTINUE.
+      ENDTRY.
+
+      APPEND LINES OF early_response-failed-book TO failed-book.
+      APPEND LINES OF early_response-failed-bookstore TO failed-bookstore.
+      APPEND LINES OF early_response-reported-book TO reported-book.
+      APPEND LINES OF early_response-reported-bookstore TO reported-bookstore.
+      IF early_response-failed IS NOT INITIAL.
+        APPEND VALUE #( %key = key-%key
+                        %action-transfermultiplebooks = if_abap_behv=>mk-on ) TO failed-book.
+      ENDIF.
     ENDLOOP.
   ENDMETHOD.
 
@@ -776,3 +840,4 @@ CLASS lcl_book_validation IMPLEMENTATION.
   ENDMETHOD.
 
 ENDCLASS.
+

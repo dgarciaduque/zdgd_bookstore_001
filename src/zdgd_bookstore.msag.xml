@@ -56,6 +56,12 @@
      <MSGNR>008</MSGNR>
      <TEXT>The available stock is insufficient for the transfer</TEXT>
     </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZDGD_BOOKSTORE</ARBGB>
+     <MSGNR>009</MSGNR>
+     <TEXT>Draft instances cannot be used in this action</TEXT>
+    </T100>
    </T100>
   </asx:values>
  </asx:abap>
