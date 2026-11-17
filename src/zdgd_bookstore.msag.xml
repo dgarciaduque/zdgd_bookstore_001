@@ -62,6 +62,30 @@
      <MSGNR>009</MSGNR>
      <TEXT>Draft instances cannot be used in this action</TEXT>
     </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZDGD_BOOKSTORE</ARBGB>
+     <MSGNR>010</MSGNR>
+     <TEXT>Use active sources, at least one target, positive units and other stores.</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZDGD_BOOKSTORE</ARBGB>
+     <MSGNR>011</MSGNR>
+     <TEXT>Transfer batch rejected. Roll back the transaction; do not commit.</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZDGD_BOOKSTORE</ARBGB>
+     <MSGNR>012</MSGNR>
+     <TEXT>The resulting stock is outside the supported integer range.</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZDGD_BOOKSTORE</ARBGB>
+     <MSGNR>013</MSGNR>
+     <TEXT>You are not authorized to change all source and target bookstores.</TEXT>
+    </T100>
    </T100>
   </asx:values>
  </asx:abap>

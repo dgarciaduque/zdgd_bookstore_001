@@ -26,6 +26,7 @@ define behavior for ZDGD_C_Book alias Book
   use delete;
 
   use action TransferBook;
+  use action TransferBookToBookstores;
 
   use association _Bookstore { with draft; }
 }

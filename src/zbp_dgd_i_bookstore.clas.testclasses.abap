@@ -68,6 +68,11 @@ CLASS ltcl_book_numbering DEFINITION FINAL
     METHODS restock_precheck_mixed FOR TESTING.
     METHODS restock_precheck_draft_master FOR TESTING.
     METHODS restock_precheck_blocks_update FOR TESTING.
+    METHODS transfer_public_eml FOR TESTING.
+    METHODS transfer_flat_public_eml FOR TESTING.
+    METHODS transfer_late_rollback FOR TESTING.
+    METHODS given_public_transfer
+      RETURNING VALUE(result) TYPE lif_book_stock_handling=>transfer_requests.
     METHODS execute_restock
       IMPORTING book_id TYPE sysuuid_x16 DEFAULT master_id
                 threshold TYPE int1 DEFAULT 3
@@ -106,6 +111,125 @@ CLASS ltcl_book_numbering DEFINITION FINAL
 ENDCLASS.
 
 CLASS ltcl_book_numbering IMPLEMENTATION.
+  METHOD given_public_transfer.
+    DATA stores TYPE STANDARD TABLE OF zdgd_i_bookstore WITH EMPTY KEY.
+    DATA books TYPE persisted_books.
+    given_master( ).
+    stores = VALUE #( ( BookstoreID = store_id BookstoreName = 'Source A' City = 'City A' )
+                      ( BookstoreID = other_id BookstoreName = 'Source B' City = 'City B' )
+                      ( BookstoreID = master_id BookstoreName = 'Target' City = 'City C' ) ).
+    books = VALUE #( ( BookstoreID = store_id BookID = master_id BookName = 'Book A'
+                       Author = 'Author A' Language = 'E' UnitsInStock = 10 )
+                     ( BookstoreID = other_id BookID = master_id BookName = 'Book A'
+                       Author = 'Author A' Language = 'E' UnitsInStock = 8 ) ).
+    sql_environment->insert_test_data( stores ).
+    sql_environment->insert_test_data( books ).
+    result = VALUE #( ( BookstoreID = store_id BookID = master_id %is_draft = if_abap_behv=>mk-off
+                        %param-_TransferItems = VALUE #( ( TargetBookstoreID = master_id UnitsToTransfer = 2 ) ) )
+                      ( BookstoreID = other_id BookID = master_id %is_draft = if_abap_behv=>mk-off
+                        %param-_TransferItems = VALUE #( ( TargetBookstoreID = master_id UnitsToTransfer = 3 ) ) ) ).
+  ENDMETHOD.
+
+  METHOD transfer_public_eml.
+    DATA action_requests TYPE lif_book_stock_handling=>transfer_requests.
+    action_requests = given_public_transfer( ).
+    action_requests[ 2 ]-%param-_TransferItems[ 1 ]-UnitsToTransfer = -1.
+    MODIFY ENTITIES OF zdgd_i_bookstore
+      ENTITY Book EXECUTE TransferBookToBookstores FROM action_requests
+      FAILED failed REPORTED reported.
+    cl_abap_unit_assert=>assert_equals( exp = 2 act = lines( failed-book ) ).
+    action_requests[ 2 ]-%param-_TransferItems[ 1 ]-UnitsToTransfer = 3.
+    MODIFY ENTITIES OF zdgd_i_bookstore
+      ENTITY Book EXECUTE TransferBookToBookstores FROM action_requests
+      FAILED failed REPORTED reported.
+    cl_abap_unit_assert=>assert_initial( failed ).
+    READ ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
+      ENTITY Book FIELDS ( UnitsInStock )
+      WITH VALUE #( ( BookstoreID = master_id BookID = master_id %is_draft = if_abap_behv=>mk-off ) )
+      RESULT DATA(actual) FAILED DATA(read_failed).
+    cl_abap_unit_assert=>assert_initial( read_failed ).
+    cl_abap_unit_assert=>assert_equals( exp = 5 act = actual[ 1 ]-UnitsInStock ).
+  ENDMETHOD.
+
+  METHOD transfer_flat_public_eml.
+    DATA action_requests TYPE TABLE FOR ACTION IMPORT zdgd_i_bookstore\\Book~TransferBook.
+    DATA(deep_requests) = given_public_transfer( ).
+    action_requests = VALUE #( FOR request IN deep_requests
+      ( %tky = request-%tky
+        %param = VALUE #( TargetBookstoreID = request-%param-_TransferItems[ 1 ]-TargetBookstoreID
+                          UnitsToTransfer = request-%param-_TransferItems[ 1 ]-UnitsToTransfer ) ) ).
+    action_requests[ 2 ]-%param-UnitsToTransfer = -1.
+
+    MODIFY ENTITIES OF zdgd_i_bookstore
+      ENTITY Book EXECUTE TransferBook FROM action_requests
+      FAILED failed REPORTED reported.
+    cl_abap_unit_assert=>assert_equals( exp = 2 act = lines( failed-book ) ).
+    cl_abap_unit_assert=>assert_equals( exp = 1 act = lines( reported-book ) ).
+    LOOP AT failed-book INTO DATA(rejected).
+      cl_abap_unit_assert=>assert_equals( exp = if_abap_behv=>mk-on act = rejected-%action-TransferBook ).
+      cl_abap_unit_assert=>assert_equals( exp = if_abap_behv=>mk-off act = rejected-%action-TransferBookToBookstores ).
+    ENDLOOP.
+
+    MODIFY ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
+      ENTITY Book EXECUTE TransferBook FROM action_requests
+      FAILED failed REPORTED reported.
+    cl_abap_unit_assert=>assert_equals( exp = 2 act = lines( failed-book ) ).
+    READ ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
+      ENTITY Book FIELDS ( UnitsInStock )
+      WITH VALUE #( ( BookstoreID = store_id BookID = master_id %is_draft = if_abap_behv=>mk-off ) )
+      RESULT DATA(unchanged) FAILED DATA(read_failed).
+    cl_abap_unit_assert=>assert_initial( read_failed ).
+    cl_abap_unit_assert=>assert_equals( exp = 10 act = unchanged[ 1 ]-UnitsInStock ).
+
+    action_requests[ 2 ]-%param-UnitsToTransfer = 3.
+    MODIFY ENTITIES OF zdgd_i_bookstore
+      ENTITY Book EXECUTE TransferBook FROM action_requests
+      FAILED failed REPORTED reported.
+    cl_abap_unit_assert=>assert_initial( failed ).
+    READ ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
+      ENTITY Book FIELDS ( UnitsInStock )
+      WITH VALUE #( ( BookstoreID = master_id BookID = master_id %is_draft = if_abap_behv=>mk-off ) )
+      RESULT DATA(actual) FAILED read_failed.
+    cl_abap_unit_assert=>assert_initial( read_failed ).
+    cl_abap_unit_assert=>assert_equals( exp = 5 act = actual[ 1 ]-UnitsInStock ).
+  ENDMETHOD.
+
+  METHOD transfer_late_rollback.
+    DATA action_requests TYPE lif_book_stock_handling=>transfer_requests.
+    action_requests = given_public_transfer( ).
+
+    TEST-INJECTION transfer_batch_modify.
+      MODIFY ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
+        ENTITY Book UPDATE FIELDS ( UnitsInStock ) WITH updates
+        FAILED result-failed REPORTED result-reported.
+      APPEND VALUE #( BookstoreID = creates[ 1 ]-BookstoreID %is_draft = if_abap_behv=>mk-off
+                      %fail-cause = if_abap_behv=>cause-locked ) TO result-failed-bookstore.
+    END-TEST-INJECTION.
+
+    MODIFY ENTITIES OF zdgd_i_bookstore
+      ENTITY Book EXECUTE TransferBookToBookstores FROM action_requests
+      FAILED failed REPORTED reported.
+    cl_abap_unit_assert=>assert_equals( exp = 2 act = lines( failed-book ) ).
+    READ ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
+      ENTITY Book FIELDS ( UnitsInStock )
+      WITH VALUE #( ( BookstoreID = store_id BookID = master_id %is_draft = if_abap_behv=>mk-off ) )
+      RESULT DATA(partial_books).
+    cl_abap_unit_assert=>assert_equals( exp = 8 act = partial_books[ 1 ]-UnitsInStock ).
+
+    ROLLBACK ENTITIES.
+
+    READ ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
+      ENTITY Book FIELDS ( UnitsInStock )
+      WITH VALUE #( ( BookstoreID = store_id BookID = master_id %is_draft = if_abap_behv=>mk-off )
+                    ( BookstoreID = other_id BookID = master_id %is_draft = if_abap_behv=>mk-off ) )
+      RESULT DATA(restored_books) FAILED DATA(read_failed).
+    cl_abap_unit_assert=>assert_initial( read_failed ).
+    cl_abap_unit_assert=>assert_equals( exp = 10 act = restored_books[ KEY entity
+      BookstoreID = store_id BookID = master_id ]-UnitsInStock ).
+    cl_abap_unit_assert=>assert_equals( exp = 8 act = restored_books[ KEY entity
+      BookstoreID = other_id BookID = master_id ]-UnitsInStock ).
+  ENDMETHOD.
+
   METHOD class_setup.
     sql_environment = cl_osql_test_environment=>create(
       i_dependency_list = VALUE #( ( 'ZDGD_I_BOOKMASTERDATA' )
@@ -838,8 +962,17 @@ CLASS ltcl_book_master_data DEFINITION FINAL
     METHODS book_duplicate_fails           FOR TESTING.
     METHODS mixed_duplicate_batch          FOR TESTING.
     METHODS book_other_store_passes        FOR TESTING.
-    METHODS transfer_creates_target FOR TESTING.
-    METHODS transfer_failure_atomic FOR TESTING.
+    METHODS transfer_creates_target FOR TESTING RAISING zdgd_bookstore_exception.
+    METHODS transfer_failure_atomic FOR TESTING RAISING zdgd_bookstore_exception.
+    METHODS transfer_precheck_batch FOR TESTING.
+    METHODS transfer_shared_target FOR TESTING.
+    METHODS transfer_rejects_batch FOR TESTING.
+    METHODS transfer_overflow FOR TESTING.
+    METHODS transfer_cross_sources FOR TESTING.
+    METHODS transfer_flat_rejects_batch FOR TESTING.
+    METHODS transfer_payload_variants FOR TESTING.
+    METHODS given_transfer_batch
+      RETURNING VALUE(result) TYPE lif_book_stock_handling=>transfer_requests.
     METHODS different_book_passes FOR TESTING.
     METHODS draft_details_mismatch         FOR TESTING.
     METHODS new_draft_language_changed     FOR TESTING.
@@ -867,6 +1000,184 @@ ENDCLASS.
 
 
 CLASS ltcl_book_master_data IMPLEMENTATION.
+
+  METHOD given_transfer_batch.
+    given_master_details( ).
+    DO 3 TIMES.
+      given_book( book_id = master_book_id book_name = 'Master Book'
+                  author = 'Master Author' language = 'E' ).
+    ENDDO.
+    MODIFY ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
+      ENTITY Book UPDATE FIELDS ( UnitsInStock )
+      WITH VALUE #( ( %tky = book_keys[ 1 ]-%tky UnitsInStock = 10 )
+                    ( %tky = book_keys[ 2 ]-%tky UnitsInStock = 8 ) )
+      FAILED DATA(setup_failed).
+    cl_abap_unit_assert=>assert_initial( setup_failed ).
+    result = VALUE #( ( %tky = book_keys[ 1 ]-%tky
+                        %param-_TransferItems = VALUE #(
+                          ( ItemID = master_book_id TargetBookstoreID = book_keys[ 3 ]-BookstoreID UnitsToTransfer = 2 )
+                          ( ItemID = missing_book_id TargetBookstoreID = book_keys[ 3 ]-BookstoreID UnitsToTransfer = 3 ) ) )
+                      ( %tky = book_keys[ 2 ]-%tky
+                        %param-_TransferItems = VALUE #(
+                          ( ItemID = master_book_id TargetBookstoreID = book_keys[ 3 ]-BookstoreID UnitsToTransfer = 3 ) ) ) ).
+  ENDMETHOD.
+
+  METHOD transfer_precheck_batch.
+    DATA requests TYPE lif_book_stock_handling=>transfer_requests.
+    DATA precheck_failed TYPE RESPONSE FOR FAILED EARLY zdgd_i_bookstore.
+    DATA precheck_reported TYPE RESPONSE FOR REPORTED EARLY zdgd_i_bookstore.
+    requests = VALUE #( ( BookstoreID = master_book_id BookID = master_book_id
+                          %is_draft = if_abap_behv=>mk-off
+                          %param-_TransferItems = VALUE #( ( TargetBookstoreID = missing_book_id UnitsToTransfer = 1 ) ) )
+                        ( BookstoreID = missing_book_id BookID = master_book_id
+                          %is_draft = if_abap_behv=>mk-off
+                          %param-_TransferItems = VALUE #( ( TargetBookstoreID = master_book_id UnitsToTransfer = -1 ) ) ) ).
+    cut->precheck_transfer( EXPORTING keys = CORRESPONDING #( requests )
+                            CHANGING failed = precheck_failed reported = precheck_reported ).
+    cl_abap_unit_assert=>assert_equals( exp = 2 act = lines( precheck_failed-book ) ).
+    cl_abap_unit_assert=>assert_equals( exp = 1 act = lines( precheck_reported-book ) ).
+    cl_abap_unit_assert=>assert_equals(
+      exp = 'Use active sources, at least one target, positive units and other stores.'
+      act = precheck_reported-book[ 1 ]-%msg->if_message~get_text( ) ).
+    requests[ 2 ]-%param-_TransferItems[ 1 ]-UnitsToTransfer = 1.
+    CLEAR: precheck_failed, precheck_reported.
+    cut->precheck_transfer( EXPORTING keys = CORRESPONDING #( requests )
+                            CHANGING failed = precheck_failed reported = precheck_reported ).
+    cl_abap_unit_assert=>assert_initial( precheck_failed ).
+    cl_abap_unit_assert=>assert_initial( precheck_reported ).
+  ENDMETHOD.
+
+  METHOD transfer_shared_target.
+    DATA requests TYPE lif_book_stock_handling=>transfer_requests.
+    DATA action_failed TYPE RESPONSE FOR FAILED EARLY zdgd_i_bookstore.
+    DATA action_reported TYPE RESPONSE FOR REPORTED EARLY zdgd_i_bookstore.
+    DATA action_mapped TYPE RESPONSE FOR MAPPED EARLY zdgd_i_bookstore.
+    requests = given_transfer_batch( ).
+    cut->TransferBookToBookstores( EXPORTING keys = requests
+      CHANGING mapped = action_mapped failed = action_failed reported = action_reported ).
+    cl_abap_unit_assert=>assert_initial( action_failed ).
+    READ ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
+      ENTITY Book FIELDS ( UnitsInStock ) WITH book_keys
+      RESULT DATA(actual) FAILED DATA(read_failed).
+    cl_abap_unit_assert=>assert_initial( read_failed ).
+    cl_abap_unit_assert=>assert_equals( exp = 5 act = actual[ KEY entity
+      BookstoreID = book_keys[ 1 ]-BookstoreID BookID = master_book_id ]-UnitsInStock ).
+    cl_abap_unit_assert=>assert_equals( exp = 5 act = actual[ KEY entity
+      BookstoreID = book_keys[ 2 ]-BookstoreID BookID = master_book_id ]-UnitsInStock ).
+    cl_abap_unit_assert=>assert_equals( exp = 8 act = actual[ KEY entity
+      BookstoreID = book_keys[ 3 ]-BookstoreID BookID = master_book_id ]-UnitsInStock ).
+  ENDMETHOD.
+
+  METHOD transfer_rejects_batch.
+    DATA requests TYPE lif_book_stock_handling=>transfer_requests.
+    DATA action_failed TYPE RESPONSE FOR FAILED EARLY zdgd_i_bookstore.
+    DATA action_reported TYPE RESPONSE FOR REPORTED EARLY zdgd_i_bookstore.
+    DATA action_mapped TYPE RESPONSE FOR MAPPED EARLY zdgd_i_bookstore.
+    requests = given_transfer_batch( ).
+    requests[ 2 ]-%param-_TransferItems[ 1 ]-UnitsToTransfer = 9.
+    cut->TransferBookToBookstores( EXPORTING keys = requests
+      CHANGING mapped = action_mapped failed = action_failed reported = action_reported ).
+    cl_abap_unit_assert=>assert_equals( exp = 2 act = lines( action_failed-book ) ).
+    READ ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
+      ENTITY Book FIELDS ( UnitsInStock ) WITH book_keys
+      RESULT DATA(actual) FAILED DATA(read_failed).
+    cl_abap_unit_assert=>assert_initial( read_failed ).
+    cl_abap_unit_assert=>assert_equals( exp = 10 act = actual[ KEY entity
+      BookstoreID = book_keys[ 1 ]-BookstoreID BookID = master_book_id ]-UnitsInStock ).
+    cl_abap_unit_assert=>assert_equals( exp = 8 act = actual[ KEY entity
+      BookstoreID = book_keys[ 2 ]-BookstoreID BookID = master_book_id ]-UnitsInStock ).
+    cl_abap_unit_assert=>assert_equals( exp = 0 act = actual[ KEY entity
+      BookstoreID = book_keys[ 3 ]-BookstoreID BookID = master_book_id ]-UnitsInStock ).
+  ENDMETHOD.
+
+  METHOD transfer_overflow.
+    DATA requests TYPE lif_book_stock_handling=>transfer_requests.
+    DATA action_failed TYPE RESPONSE FOR FAILED EARLY zdgd_i_bookstore.
+    DATA action_reported TYPE RESPONSE FOR REPORTED EARLY zdgd_i_bookstore.
+    DATA action_mapped TYPE RESPONSE FOR MAPPED EARLY zdgd_i_bookstore.
+    requests = given_transfer_batch( ).
+    MODIFY ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
+      ENTITY Book UPDATE FIELDS ( UnitsInStock )
+      WITH VALUE #( ( %tky = book_keys[ 3 ]-%tky UnitsInStock = 2147483647 ) )
+      FAILED DATA(setup_failed).
+    cl_abap_unit_assert=>assert_initial( setup_failed ).
+    cut->TransferBookToBookstores( EXPORTING keys = requests
+      CHANGING mapped = action_mapped failed = action_failed reported = action_reported ).
+    cl_abap_unit_assert=>assert_equals( exp = 2 act = lines( action_failed-book ) ).
+    cl_abap_unit_assert=>assert_equals( exp = '012' act = CAST if_t100_message(
+      action_reported-book[ 1 ]-%msg )->t100key-msgno ).
+  ENDMETHOD.
+
+  METHOD transfer_cross_sources.
+    DATA requests TYPE lif_book_stock_handling=>transfer_requests.
+    DATA action_failed TYPE RESPONSE FOR FAILED EARLY zdgd_i_bookstore.
+    DATA action_reported TYPE RESPONSE FOR REPORTED EARLY zdgd_i_bookstore.
+    DATA action_mapped TYPE RESPONSE FOR MAPPED EARLY zdgd_i_bookstore.
+    requests = given_transfer_batch( ).
+    requests[ 1 ]-%param-_TransferItems[ 1 ]-TargetBookstoreID = book_keys[ 2 ]-BookstoreID.
+    requests[ 2 ]-%param-_TransferItems[ 1 ]-TargetBookstoreID = book_keys[ 1 ]-BookstoreID.
+    cut->TransferBookToBookstores( EXPORTING keys = requests
+      CHANGING mapped = action_mapped failed = action_failed reported = action_reported ).
+    cl_abap_unit_assert=>assert_initial( action_failed ).
+    READ ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
+      ENTITY Book FIELDS ( UnitsInStock ) WITH book_keys
+      RESULT DATA(actual) FAILED DATA(read_failed).
+    cl_abap_unit_assert=>assert_initial( read_failed ).
+    cl_abap_unit_assert=>assert_equals( exp = 8 act = actual[ KEY entity
+      BookstoreID = book_keys[ 1 ]-BookstoreID BookID = master_book_id ]-UnitsInStock ).
+    cl_abap_unit_assert=>assert_equals( exp = 7 act = actual[ KEY entity
+      BookstoreID = book_keys[ 2 ]-BookstoreID BookID = master_book_id ]-UnitsInStock ).
+    cl_abap_unit_assert=>assert_equals( exp = 3 act = actual[ KEY entity
+      BookstoreID = book_keys[ 3 ]-BookstoreID BookID = master_book_id ]-UnitsInStock ).
+  ENDMETHOD.
+
+  METHOD transfer_flat_rejects_batch.
+    DATA requests TYPE TABLE FOR ACTION IMPORT zdgd_i_bookstore\\Book~TransferBook.
+    DATA action_failed TYPE RESPONSE FOR FAILED EARLY zdgd_i_bookstore.
+    DATA action_reported TYPE RESPONSE FOR REPORTED EARLY zdgd_i_bookstore.
+    DATA action_mapped TYPE RESPONSE FOR MAPPED EARLY zdgd_i_bookstore.
+    DATA(deep_requests) = given_transfer_batch( ).
+    requests = VALUE #( FOR deep_request IN deep_requests
+      ( %tky = deep_request-%tky
+        %param = VALUE #( TargetBookstoreID = book_keys[ 3 ]-BookstoreID UnitsToTransfer = 2 ) ) ).
+    requests[ 2 ]-%param-UnitsToTransfer = 9.
+    cut->TransferBook( EXPORTING keys = requests
+      CHANGING mapped = action_mapped failed = action_failed reported = action_reported ).
+    cl_abap_unit_assert=>assert_equals( exp = 2 act = lines( action_failed-book ) ).
+    LOOP AT action_failed-book INTO DATA(rejected).
+      cl_abap_unit_assert=>assert_equals( exp = if_abap_behv=>mk-on act = rejected-%action-TransferBook ).
+      cl_abap_unit_assert=>assert_equals( exp = if_abap_behv=>mk-off act = rejected-%action-TransferBookToBookstores ).
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD transfer_payload_variants.
+    DATA requests TYPE lif_book_stock_handling=>transfer_requests.
+    DATA precheck_failed TYPE RESPONSE FOR FAILED EARLY zdgd_i_bookstore.
+    DATA precheck_reported TYPE RESPONSE FOR REPORTED EARLY zdgd_i_bookstore.
+    DO 5 TIMES.
+      requests = VALUE #( ( BookstoreID = master_book_id BookID = master_book_id
+                            %is_draft = if_abap_behv=>mk-off
+                            %param-_TransferItems = VALUE #( ( TargetBookstoreID = missing_book_id UnitsToTransfer = 1 ) ) ) ).
+      CASE sy-index.
+        WHEN 1.
+          requests[ 1 ]-%is_draft = if_abap_behv=>mk-on.
+        WHEN 2.
+          CLEAR requests[ 1 ]-%param-_TransferItems.
+        WHEN 3.
+          requests[ 1 ]-%param-_TransferItems[ 1 ]-UnitsToTransfer = 0.
+        WHEN 4.
+          CLEAR requests[ 1 ]-%param-_TransferItems[ 1 ]-TargetBookstoreID.
+        WHEN 5.
+          requests[ 1 ]-%param-_TransferItems[ 1 ]-TargetBookstoreID = master_book_id.
+      ENDCASE.
+      CLEAR: precheck_failed, precheck_reported.
+      cut->precheck_transfer( EXPORTING keys = CORRESPONDING #( requests )
+        CHANGING failed = precheck_failed reported = precheck_reported ).
+      cl_abap_unit_assert=>assert_equals( exp = 1 act = lines( precheck_failed-book ) ).
+      cl_abap_unit_assert=>assert_equals( exp = '010' act = CAST if_t100_message(
+        precheck_reported-book[ 1 ]-%msg )->t100key-msgno ).
+    ENDDO.
+  ENDMETHOD.
 
   METHOD transfer_creates_target.
     DATA existing_target_store TYPE zdgd_i_bookstore-BookstoreID.
@@ -918,11 +1229,10 @@ CLASS ltcl_book_master_data IMPLEMENTATION.
            FAILED DATA(source_update_failed).
     cl_abap_unit_assert=>assert_initial( source_update_failed ).
 
-    DATA(transfer_response) = lcl_book_stock_handling=>get_instance( )->transfer_book(
-      source_bookstore = book_keys[ 1 ]-BookstoreID
-      book = master_book_id
-      targets = VALUE #( ( target_bookstore = existing_target_store units_to_transfer = 2 )
-                         ( target_bookstore = new_target_store units_to_transfer = 3 ) ) ).
+    DATA(transfer_response) = lcl_book_stock_handling=>get_instance( )->execute_transfer( VALUE #(
+      ( %tky = book_keys[ 1 ]-%tky
+        %param-_TransferItems = VALUE #( ( TargetBookstoreID = existing_target_store UnitsToTransfer = 2 )
+                                         ( TargetBookstoreID = new_target_store UnitsToTransfer = 3 ) ) ) ) ).
     cl_abap_unit_assert=>assert_initial( transfer_response-failed ).
 
     READ ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
@@ -998,11 +1308,10 @@ CLASS ltcl_book_master_data IMPLEMENTATION.
            FAILED DATA(source_update_failed).
     cl_abap_unit_assert=>assert_initial( source_update_failed ).
 
-    DATA(transfer_response) = lcl_book_stock_handling=>get_instance( )->transfer_book(
-      source_bookstore = book_keys[ 1 ]-BookstoreID
-      book = master_book_id
-      targets = VALUE #( ( target_bookstore = existing_target_store units_to_transfer = 2 )
-                         ( target_bookstore = missing_book_id units_to_transfer = 3 ) ) ).
+    DATA(transfer_response) = lcl_book_stock_handling=>get_instance( )->execute_transfer( VALUE #(
+      ( %tky = book_keys[ 1 ]-%tky
+        %param-_TransferItems = VALUE #( ( TargetBookstoreID = existing_target_store UnitsToTransfer = 2 )
+                                         ( TargetBookstoreID = missing_book_id UnitsToTransfer = 3 ) ) ) ) ).
     cl_abap_unit_assert=>assert_not_initial( transfer_response-failed ).
 
     READ ENTITIES OF zdgd_i_bookstore IN LOCAL MODE

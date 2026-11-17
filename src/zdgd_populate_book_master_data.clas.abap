@@ -12,7 +12,7 @@ ENDCLASS.
 
 
 
-CLASS zdgd_populate_book_master_data IMPLEMENTATION.
+CLASS ZDGD_POPULATE_BOOK_MASTER_DATA IMPLEMENTATION.
 
 
   METHOD if_oo_adt_classrun~main.

@@ -73,6 +73,39 @@ CLASS zdgd_bookstore_exception DEFINITION
                  attr4 TYPE scx_attrname VALUE '',
                END OF no_draft_instances_allowed.
 
+    CONSTANTS: BEGIN OF invalid_transfer,
+                 msgid TYPE symsgid      VALUE 'ZDGD_BOOKSTORE',
+                 msgno TYPE symsgno      VALUE '010',
+                 attr1 TYPE scx_attrname VALUE '',
+                 attr2 TYPE scx_attrname VALUE '',
+                 attr3 TYPE scx_attrname VALUE '',
+                 attr4 TYPE scx_attrname VALUE '',
+               END OF invalid_transfer.
+    CONSTANTS: BEGIN OF transfer_batch_rejected,
+                 msgid TYPE symsgid      VALUE 'ZDGD_BOOKSTORE',
+                 msgno TYPE symsgno      VALUE '011',
+                 attr1 TYPE scx_attrname VALUE '',
+                 attr2 TYPE scx_attrname VALUE '',
+                 attr3 TYPE scx_attrname VALUE '',
+                 attr4 TYPE scx_attrname VALUE '',
+               END OF transfer_batch_rejected.
+    CONSTANTS: BEGIN OF stock_overflow,
+                 msgid TYPE symsgid      VALUE 'ZDGD_BOOKSTORE',
+                 msgno TYPE symsgno      VALUE '012',
+                 attr1 TYPE scx_attrname VALUE '',
+                 attr2 TYPE scx_attrname VALUE '',
+                 attr3 TYPE scx_attrname VALUE '',
+                 attr4 TYPE scx_attrname VALUE '',
+               END OF stock_overflow.
+    CONSTANTS: BEGIN OF transfer_not_authorized,
+                 msgid TYPE symsgid      VALUE 'ZDGD_BOOKSTORE',
+                 msgno TYPE symsgno      VALUE '013',
+                 attr1 TYPE scx_attrname VALUE '',
+                 attr2 TYPE scx_attrname VALUE '',
+                 attr3 TYPE scx_attrname VALUE '',
+                 attr4 TYPE scx_attrname VALUE '',
+               END OF transfer_not_authorized.
+
     METHODS constructor
       IMPORTING textid    LIKE if_t100_message=>t100key         OPTIONAL
                 !previous LIKE previous                         OPTIONAL
@@ -84,7 +117,9 @@ ENDCLASS.
 
 
 
-CLASS zdgd_bookstore_exception IMPLEMENTATION.
+CLASS ZDGD_BOOKSTORE_EXCEPTION IMPLEMENTATION.
+
+
   METHOD constructor ##ADT_SUPPRESS_GENERATION.
     super->constructor( previous = previous ).
     CLEAR me->textid.

@@ -4,6 +4,12 @@
 CLASS ltcl_book_numbering DEFINITION DEFERRED FOR TESTING.
 
 INTERFACE lif_book_validation.
+  TYPES transfer_requests TYPE TABLE FOR ACTION IMPORT zdgd_i_bookstore\\Book~TransferBookToBookstores.
+  TYPES: BEGIN OF response_early,
+           failed   TYPE RESPONSE FOR FAILED EARLY zdgd_i_bookstore,
+           reported TYPE RESPONSE FOR REPORTED EARLY zdgd_i_bookstore,
+         END OF response_early.
+
   TYPES: BEGIN OF book_key,
            BookstoreID TYPE zdgd_i_book-BookstoreID,
            BookID      TYPE zdgd_i_book-BookID,
@@ -40,11 +46,14 @@ INTERFACE lif_book_validation.
   METHODS find_duplicates_in_bookstore IMPORTING books             TYPE book_keys
                                        RETURNING VALUE(duplicates) TYPE book_keys.
 
-  METHODS find_request_duplicates IMPORTING books                 TYPE request_candidates
-                                   RETURNING VALUE(duplicates) TYPE request_candidates.
+  METHODS find_request_duplicates IMPORTING books             TYPE request_candidates
+                                  RETURNING VALUE(duplicates) TYPE request_candidates.
 
   METHODS find_invalid_master_data IMPORTING books                TYPE master_candidates
                                    RETURNING VALUE(invalid_books) TYPE master_findings.
+
+  METHODS validate_payload_for_transfer IMPORTING requests      TYPE transfer_requests
+                                        RETURNING VALUE(result) TYPE response_early.
 ENDINTERFACE.
 
 
@@ -68,22 +77,12 @@ ENDCLASS.
 
 
 INTERFACE lif_book_stock_handling.
-  TYPES: BEGIN OF transfer_target,
-           target_bookstore  TYPE zdgd_i_book-BookstoreID,
-           units_to_transfer TYPE zdgd_i_book-UnitsInStock,
-         END OF transfer_target.
-  TYPES transfer_targets TYPE STANDARD TABLE OF transfer_target WITH EMPTY KEY.
+  TYPES transfer_requests TYPE lif_book_validation=>transfer_requests.
 
-  TYPES: BEGIN OF response_early,
-           failed   TYPE RESPONSE FOR FAILED EARLY zdgd_i_bookstore,
-           reported TYPE RESPONSE FOR REPORTED EARLY zdgd_i_bookstore,
-         END OF response_early.
+  TYPES response_early TYPE lif_book_validation=>response_early.
 
-  METHODS transfer_book IMPORTING source_bookstore TYPE zdgd_i_book-BookstoreID
-                                  book             TYPE zdgd_i_book-BookID
-                                  targets          TYPE transfer_targets
-                        RETURNING VALUE(result)    TYPE response_early
-                        RAISING   zdgd_bookstore_exception.
+  METHODS execute_transfer IMPORTING requests TYPE transfer_requests
+                           RETURNING VALUE(result) TYPE response_early.
 ENDINTERFACE.
 
 
@@ -95,126 +94,174 @@ CLASS lcl_book_stock_handling DEFINITION CREATE PRIVATE.
       RETURNING VALUE(result) TYPE REF TO lif_book_stock_handling.
 
   PRIVATE SECTION.
-    CLASS-DATA self TYPE REF TO lcl_book_stock_handling.
+    CLASS-DATA self TYPE REF TO lif_book_stock_handling.
+
+    METHODS transfer_batch
+      IMPORTING requests TYPE lif_book_stock_handling=>transfer_requests
+      RETURNING VALUE(result) TYPE lif_book_stock_handling=>response_early
+      RAISING zdgd_bookstore_exception.
 
  ENDCLASS.
 
 CLASS lcl_book_stock_handling IMPLEMENTATION.
-  METHOD get_instance.
-    IF self IS NOT BOUND.
-      self = NEW #( ).
+  METHOD lif_book_stock_handling~execute_transfer.
+    DATA response      TYPE lif_book_stock_handling=>response_early.
+    DATA error_message TYPE REF TO zdgd_bookstore_exception.
+
+    TRY.
+        response = transfer_batch( requests ).
+      CATCH zdgd_bookstore_exception INTO error_message.
+    ENDTRY.
+    result = response.
+    IF response-failed IS NOT INITIAL OR error_message IS BOUND.
+      CLEAR result-failed.
+      result-failed-book = VALUE #( FOR rejected IN requests ( %tky = rejected-%tky ) ).
+      LOOP AT requests INTO DATA(request).
+        APPEND VALUE #( %tky = request-%tky
+                        %msg = COND #( WHEN error_message IS BOUND
+                                       THEN error_message
+                                       ELSE NEW zdgd_bookstore_exception(
+                                                    textid = zdgd_bookstore_exception=>transfer_batch_rejected ) ) ) TO result-reported-book.
+      ENDLOOP.
     ENDIF.
-    result = self.
   ENDMETHOD.
 
-  METHOD lif_book_stock_handling~transfer_book.
-      TYPES: BEGIN OF target_total,
-         target_bookstore  TYPE zdgd_i_book-BookstoreID,
-         units_to_transfer TYPE int8,
-       END OF target_total.
-      TYPES target_totals TYPE HASHED TABLE OF target_total WITH UNIQUE KEY target_bookstore.
+  METHOD transfer_batch.
+    TYPES: BEGIN OF stock_plan,
+             BookstoreID TYPE zdgd_i_book-BookstoreID,
+             BookID TYPE zdgd_i_book-BookID,
+             outgoing TYPE int8,
+             incoming TYPE int8,
+           END OF stock_plan.
+    DATA plan TYPE SORTED TABLE OF stock_plan WITH UNIQUE KEY BookstoreID BookID.
+    DATA store_keys TYPE SORTED TABLE OF zdgd_i_bookstore-BookstoreID WITH UNIQUE KEY table_line.
+    DATA updates TYPE TABLE FOR UPDATE zdgd_i_bookstore\\Book.
+    DATA creates TYPE TABLE FOR CREATE zdgd_i_bookstore\\Bookstore\_Books.
+    DATA master_candidates TYPE lif_book_validation=>master_candidates.
+    DATA next_cid TYPE i.
+    DATA final_stock TYPE int8.
 
-      DATA target_totals TYPE target_totals.
-      DATA updates TYPE TABLE FOR UPDATE zdgd_i_bookstore\\Book.
-      DATA creates TYPE TABLE FOR CREATE zdgd_i_bookstore\\Bookstore\_Books.
+    IF requests IS INITIAL.
+      RETURN.
+    ENDIF.
 
-    READ ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
-         ENTITY Book
-         FIELDS ( BookstoreID BookID BookName Author Language UnitsInStock )
-        WITH VALUE #( ( BookstoreID = source_bookstore
-            BookID      = book
-            %is_draft   = if_abap_behv=>mk-off ) )
-         RESULT DATA(initial_book_stock)
-         FAILED result-failed
-         REPORTED result-reported.
+    result = lcl_book_validation=>get_instance( )->validate_payload_for_transfer( requests ).
     IF result-failed IS NOT INITIAL.
       RETURN.
     ENDIF.
 
-    DATA(source_book) = initial_book_stock[ KEY entity
-                                            BookstoreID = source_bookstore
-                                            BookID      = book ].
-
-    LOOP AT targets INTO DATA(target).
-      DATA(target_ref) = REF #( target_totals[ target_bookstore = target-target_bookstore ] OPTIONAL ).
-      IF target_ref IS BOUND.
-        target_ref->units_to_transfer += target-units_to_transfer.
-      ELSE.
-        INSERT VALUE #( target_bookstore = target-target_bookstore
-                        units_to_transfer = target-units_to_transfer ) INTO TABLE target_totals.
+    LOOP AT requests INTO DATA(request).
+      INSERT request-BookstoreID INTO TABLE store_keys.
+      IF NOT line_exists( plan[ BookstoreID = request-BookstoreID BookID = request-BookID ] ).
+        INSERT VALUE #( BookstoreID = request-BookstoreID BookID = request-BookID ) INTO TABLE plan.
       ENDIF.
+      DATA(source_plan) = REF #( plan[ BookstoreID = request-BookstoreID BookID = request-BookID ] ).
+      LOOP AT request-%param-_TransferItems INTO DATA(item).
+        source_plan->outgoing += item-UnitsToTransfer.
+        INSERT item-TargetBookstoreID INTO TABLE store_keys.
+        IF NOT line_exists( plan[ BookstoreID = item-TargetBookstoreID BookID = request-BookID ] ).
+          INSERT VALUE #( BookstoreID = item-TargetBookstoreID BookID = request-BookID ) INTO TABLE plan.
+        ENDIF.
+        DATA(target_plan) = REF #( plan[ BookstoreID = item-TargetBookstoreID BookID = request-BookID ] ).
+        target_plan->incoming += item-UnitsToTransfer.
+      ENDLOOP.
     ENDLOOP.
-
-    DATA(total_units_to_transfer) = REDUCE int8(
-      INIT total = 0
-      FOR target_for_sum IN target_totals
-      NEXT total += target_for_sum-units_to_transfer ).
-    IF total_units_to_transfer > source_book-UnitsInStock.
-      RAISE EXCEPTION NEW zdgd_bookstore_exception( textid   = zdgd_bookstore_exception=>insufficient_stock
-                                                    severity = if_abap_behv_message=>severity-error ).
-    ENDIF.
 
     READ ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
-         ENTITY Bookstore FIELDS ( BookstoreID )
-         WITH VALUE #( FOR target_for_read IN target_totals
-                       ( BookstoreID = target_for_read-target_bookstore
-                         %is_draft   = if_abap_behv=>mk-off ) )
-         RESULT DATA(target_stores).
-    LOOP AT target_totals INTO DATA(target_for_validate).
-      IF NOT line_exists( target_stores[ KEY entity
-                                         BookstoreID = target_for_validate-target_bookstore ] ).
-        APPEND VALUE #( BookstoreID = target_for_validate-target_bookstore
-                        %is_draft   = if_abap_behv=>mk-off
-                        %fail-cause = if_abap_behv=>cause-not_found ) TO result-failed-bookstore.
-      ENDIF.
-    ENDLOOP.
-    IF result-failed-bookstore IS NOT INITIAL.
+      ENTITY Bookstore FIELDS ( BookstoreID )
+      WITH VALUE #( FOR store_id IN store_keys
+                    ( BookstoreID = store_id %is_draft = if_abap_behv=>mk-off ) )
+      RESULT DATA(stores) FAILED result-failed REPORTED result-reported.
+    IF result-failed IS NOT INITIAL.
       RETURN.
     ENDIF.
 
-    READ ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
-         ENTITY Book
-         FIELDS ( BookstoreID BookID UnitsInStock )
-         WITH VALUE #( FOR target_total_row IN target_totals
-                       ( BookstoreID = target_total_row-target_bookstore
-                         BookID      = book
-                         %is_draft   = if_abap_behv=>mk-off ) )
-         RESULT DATA(target_books).
-
-    updates = VALUE #( ( BookstoreID  = source_bookstore
-                         BookID       = book
-                         %is_draft    = if_abap_behv=>mk-off
-                         UnitsInStock = source_book-UnitsInStock - total_units_to_transfer ) ).
-    LOOP AT target_totals INTO DATA(target_for_apply).
-      DATA(existing_target) = VALUE #( target_books[ KEY entity
-                                                      BookstoreID = target_for_apply-target_bookstore
-                                                      BookID      = book ] OPTIONAL ).
-      IF existing_target IS INITIAL.
-        APPEND VALUE #( BookstoreID = target_for_apply-target_bookstore
-                        %is_draft   = if_abap_behv=>mk-off
-                        %target     = VALUE #( ( %cid         = |TRANSFER{ sy-tabix }|
-                                                 %is_draft    = if_abap_behv=>mk-off
-                                                 BookID       = book
-                                                 BookName     = source_book-BookName
-                                                 Author       = source_book-Author
-                                                 Language     = source_book-Language
-                                                 UnitsInStock = target_for_apply-units_to_transfer ) ) )
-               TO creates.
-      ELSE.
-        APPEND VALUE #( BookstoreID  = target_for_apply-target_bookstore
-                        BookID       = book
-                        %is_draft    = if_abap_behv=>mk-off
-                        UnitsInStock = existing_target-UnitsInStock + target_for_apply-units_to_transfer )
-               TO updates.
+    GET PERMISSIONS ONLY INSTANCE AUTHORIZATION OF zdgd_i_bookstore
+      ENTITY Bookstore
+      FROM VALUE #( FOR store_id_for_auth IN store_keys
+                    ( BookstoreID = store_id_for_auth %is_draft = if_abap_behv=>mk-off ) )
+      REQUEST VALUE #( %update = if_abap_behv=>mk-on %assoc-_Books = if_abap_behv=>mk-on )
+      RESULT DATA(permissions) FAILED result-failed REPORTED result-reported.
+    IF result-failed IS NOT INITIAL.
+      RETURN.
+    ENDIF.
+    LOOP AT permissions-instances INTO DATA(permission).
+      IF permission-%update <> if_abap_behv=>auth-allowed
+         OR permission-%assoc-_Books <> if_abap_behv=>auth-allowed.
+        RAISE EXCEPTION NEW zdgd_bookstore_exception( textid = zdgd_bookstore_exception=>transfer_not_authorized ).
       ENDIF.
     ENDLOOP.
 
-    MODIFY ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
-           ENTITY Book UPDATE FIELDS ( UnitsInStock ) WITH updates
-           ENTITY Bookstore CREATE BY \_Books
-             FIELDS ( BookID BookName Author Language UnitsInStock ) WITH creates
-           FAILED result-failed
-           REPORTED result-reported.
+    READ ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
+      ENTITY Book FIELDS ( BookstoreID BookID BookName Author Language UnitsInStock )
+      WITH VALUE #( FOR planned_read IN plan
+                    ( BookstoreID = planned_read-BookstoreID BookID = planned_read-BookID
+                      %is_draft = if_abap_behv=>mk-off ) )
+      RESULT DATA(books) FAILED DATA(read_failed) REPORTED DATA(read_reported).
+    LOOP AT read_failed-book INTO DATA(read_failure).
+      IF read_failure-%fail-cause <> if_abap_behv=>cause-not_found
+         OR plan[ BookstoreID = read_failure-BookstoreID BookID = read_failure-BookID ]-outgoing > 0.
+        APPEND read_failure TO result-failed-book.
+      ENDIF.
+    ENDLOOP.
+    APPEND LINES OF read_failed-bookstore TO result-failed-bookstore.
+    APPEND LINES OF read_reported-book TO result-reported-book.
+    APPEND LINES OF read_reported-bookstore TO result-reported-bookstore.
+    IF result-failed IS NOT INITIAL.
+      RETURN.
+    ENDIF.
+
+    LOOP AT plan INTO DATA(planned_source) WHERE outgoing > 0.
+      DATA(source_book) = books[ KEY entity
+                                BookstoreID = planned_source-BookstoreID BookID = planned_source-BookID ].
+      IF planned_source-outgoing > source_book-UnitsInStock.
+        RAISE EXCEPTION NEW zdgd_bookstore_exception( textid = zdgd_bookstore_exception=>insufficient_stock ).
+      ENDIF.
+      APPEND CORRESPONDING #( source_book ) TO master_candidates.
+    ENDLOOP.
+    IF lcl_book_validation=>get_instance( )->find_invalid_master_data( master_candidates ) IS NOT INITIAL.
+      RAISE EXCEPTION NEW zdgd_bookstore_exception( textid = zdgd_bookstore_exception=>book_not_in_master_data ).
+    ENDIF.
+
+    LOOP AT plan INTO DATA(planned_stock).
+      DATA(existing) = REF #( books[ KEY entity BookstoreID = planned_stock-BookstoreID
+                                                BookID = planned_stock-BookID ] OPTIONAL ).
+      final_stock = planned_stock-incoming - planned_stock-outgoing.
+      IF existing IS BOUND.
+        final_stock += existing->UnitsInStock.
+      ENDIF.
+      IF final_stock < 0 OR final_stock > 2147483647.
+        RAISE EXCEPTION NEW zdgd_bookstore_exception( textid = zdgd_bookstore_exception=>stock_overflow ).
+      ENDIF.
+      IF existing IS BOUND.
+        APPEND VALUE #( %tky = existing->%tky UnitsInStock = CONV #( final_stock ) ) TO updates.
+      ELSE.
+        DATA(master) = master_candidates[ BookID = planned_stock-BookID ].
+        next_cid += 1.
+        APPEND VALUE #( BookstoreID = planned_stock-BookstoreID
+                        %is_draft = if_abap_behv=>mk-off
+                        %target = VALUE #( ( %cid = |TRANSFER{ next_cid }|
+                                             %is_draft = if_abap_behv=>mk-off
+                                             BookID = planned_stock-BookID BookName = master-BookName
+                                             Author = master-Author Language = master-Language
+                                             UnitsInStock = CONV #( final_stock ) ) ) ) TO creates.
+      ENDIF.
+    ENDLOOP.
+
+    TEST-SEAM transfer_batch_modify.
+      MODIFY ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
+        ENTITY Book UPDATE FIELDS ( UnitsInStock ) WITH updates
+        ENTITY Bookstore CREATE BY \_Books
+          FIELDS ( BookID BookName Author Language UnitsInStock ) WITH creates
+        FAILED result-failed REPORTED result-reported.
+    END-TEST-SEAM.
+  ENDMETHOD.
+
+  METHOD get_instance.
+    IF self IS NOT BOUND.
+      self = NEW lcl_book_stock_handling( ).
+    ENDIF.
+    result = self.
   ENDMETHOD.
 
 ENDCLASS.
@@ -607,8 +654,12 @@ CLASS lhc_book DEFINITION
     METHODS get_instance_authorizations FOR INSTANCE AUTHORIZATION
       keys REQUEST requested_authorizations FOR Book RESULT result.
 
-    METHODS TransferMultipleBooks FOR MODIFY
-      keys FOR ACTION Book~TransferMultipleBooks.
+    METHODS TransferBookToBookstores FOR MODIFY
+      keys FOR ACTION Book~TransferBookToBookstores.
+    METHODS precheck_transfer FOR PRECHECK
+      keys FOR ACTION Book~TransferBookToBookstores.
+    METHODS precheck_transfer_book FOR PRECHECK
+      keys FOR ACTION Book~TransferBook.
     METHODS TransferBook FOR MODIFY
       keys FOR ACTION Book~TransferBook.
 
@@ -699,51 +750,89 @@ CLASS lhc_book IMPLEMENTATION.
 
   ENDMETHOD.
 
-  METHOD TransferMultipleBooks.
-    LOOP AT keys INTO DATA(key) USING KEY id WHERE %is_draft = if_abap_behv=>mk-on.
-      APPEND VALUE #( %key                          = key-%key
-                      %action-transfermultiplebooks = if_abap_behv=>mk-on  ) TO failed-book.
-      APPEND VALUE #(
-          %key = key-%key
-          %msg = NEW zdgd_bookstore_exception( textid   = zdgd_bookstore_exception=>no_draft_instances_allowed
-                                               severity = if_abap_behv_message=>severity-error ) ) TO reported-book.
+  METHOD precheck_transfer.
+    DATA(response) = lcl_book_validation=>get_instance( )->validate_payload_for_transfer( CORRESPONDING #( keys ) ).
+    LOOP AT response-failed-book REFERENCE INTO DATA(failure).
+      failure->%action-TransferBookToBookstores = if_abap_behv=>mk-on.
     ENDLOOP.
-    LOOP AT keys INTO key.
-      IF key-%is_draft = if_abap_behv=>mk-on.
-        CONTINUE.
-      ENDIF.
-      TRY.
-          DATA(early_response) = lcl_book_stock_handling=>get_instance( )->transfer_book(
-            source_bookstore = key-BookstoreID
-            book = key-BookID
-            targets = VALUE #( FOR item IN key-%param-_TransferItems
-                               ( target_bookstore = item-TargetBookstoreID
-                                 units_to_transfer = item-UnitsToTransfer ) ) ).
-        CATCH zdgd_bookstore_exception INTO DATA(bookstore_exception).
-          APPEND VALUE #( %key = key-%key
-                          %action-transfermultiplebooks = if_abap_behv=>mk-on ) TO failed-book.
-          APPEND VALUE #( %key = key-%key %msg = bookstore_exception ) TO reported-book.
-          CONTINUE.
-      ENDTRY.
+    APPEND LINES OF response-failed-book TO failed-book.
+    APPEND LINES OF response-reported-book TO reported-book.
+  ENDMETHOD.
 
-      APPEND LINES OF early_response-failed-book TO failed-book.
-      APPEND LINES OF early_response-failed-bookstore TO failed-bookstore.
-      APPEND LINES OF early_response-reported-book TO reported-book.
-      APPEND LINES OF early_response-reported-bookstore TO reported-bookstore.
-      IF early_response-failed IS NOT INITIAL.
-        APPEND VALUE #( %key = key-%key
-                        %action-transfermultiplebooks = if_abap_behv=>mk-on ) TO failed-book.
-      ENDIF.
+  METHOD precheck_transfer_book.
+    DATA deep_requests TYPE lif_book_stock_handling=>transfer_requests.
+
+    deep_requests = VALUE #( FOR request IN keys
+      ( %tky = request-%tky
+        %param-_TransferItems = VALUE #( ( TargetBookstoreID = request-%param-TargetBookstoreID
+                                           UnitsToTransfer = request-%param-UnitsToTransfer ) ) ) ).
+    DATA(response) = lcl_book_validation=>get_instance( )->validate_payload_for_transfer( deep_requests ).
+    LOOP AT response-failed-book REFERENCE INTO DATA(failure).
+      failure->%action-TransferBook = if_abap_behv=>mk-on.
     ENDLOOP.
+    APPEND LINES OF response-failed-book TO failed-book.
+    APPEND LINES OF response-reported-book TO reported-book.
+  ENDMETHOD.
+
+  METHOD TransferBookToBookstores.
+    DATA(response) = lcl_book_stock_handling=>get_instance( )->execute_transfer( keys ).
+    LOOP AT response-failed-book REFERENCE INTO DATA(failure).
+      failure->%action-TransferBookToBookstores = if_abap_behv=>mk-on.
+    ENDLOOP.
+    APPEND LINES OF response-failed-book TO failed-book.
+    APPEND LINES OF response-failed-bookstore TO failed-bookstore.
+    APPEND LINES OF response-reported-book TO reported-book.
+    APPEND LINES OF response-reported-bookstore TO reported-bookstore.
   ENDMETHOD.
 
   METHOD TransferBook.
+    DATA deep_requests TYPE lif_book_stock_handling=>transfer_requests.
+    DATA response      TYPE lif_book_stock_handling=>response_early.
+
+    deep_requests = VALUE #(
+        FOR request IN keys
+        ( %tky                  = request-%tky
+          %param-_TransferItems = VALUE #( ( TargetBookstoreID = request-%param-TargetBookstoreID
+                                             UnitsToTransfer   = request-%param-UnitsToTransfer ) ) ) ).
+    response = lcl_book_stock_handling=>get_instance( )->execute_transfer( deep_requests ).
+    LOOP AT response-failed-book REFERENCE INTO DATA(failure).
+      failure->%action-TransferBook             = if_abap_behv=>mk-on.
+    ENDLOOP.
+    APPEND LINES OF response-failed-book TO failed-book.
+    APPEND LINES OF response-failed-bookstore TO failed-bookstore.
+    APPEND LINES OF response-reported-book TO reported-book.
+    APPEND LINES OF response-reported-bookstore TO reported-bookstore.
   ENDMETHOD.
 
 ENDCLASS.
 
 
 CLASS lcl_book_validation IMPLEMENTATION.
+  METHOD lif_book_validation~validate_payload_for_transfer.
+    DATA invalid TYPE abap_bool.
+    DATA invalid_batch TYPE abap_bool.
+
+    LOOP AT requests INTO DATA(request).
+      invalid = xsdbool( request-%is_draft <> if_abap_behv=>mk-off
+                        OR request-%param-_TransferItems IS INITIAL ).
+      LOOP AT request-%param-_TransferItems INTO DATA(item).
+        IF item-UnitsToTransfer <= 0 OR item-TargetBookstoreID IS INITIAL
+           OR item-TargetBookstoreID = request-BookstoreID.
+          invalid = abap_true.
+        ENDIF.
+      ENDLOOP.
+      IF invalid = abap_true.
+        invalid_batch = abap_true.
+        APPEND VALUE #( %tky = request-%tky
+                        %msg = NEW zdgd_bookstore_exception(
+                          textid = zdgd_bookstore_exception=>invalid_transfer ) ) TO result-reported-book.
+      ENDIF.
+    ENDLOOP.
+    IF invalid_batch = abap_true.
+      result-failed-book = VALUE #( FOR rejected IN requests ( %tky = rejected-%tky ) ).
+    ENDIF.
+  ENDMETHOD.
+
   METHOD lif_book_validation~find_request_duplicates.
     TYPES: BEGIN OF duplicate_count,
              BookstoreID TYPE zdgd_i_book-BookstoreID,
@@ -800,17 +889,17 @@ CLASS lcl_book_validation IMPLEMENTATION.
       DATA(finding) = CORRESPONDING lif_book_validation=>master_finding( book ).
       TRY.
           DATA(master) = master_books[ BookID = book-BookID ].
-          finding-name_mismatch = xsdbool( book-BookName <> master-BookName ).
-          finding-author_mismatch = xsdbool( book-Author <> master-Author ).
+          finding-name_mismatch     = xsdbool( book-BookName <> master-BookName ).
+          finding-author_mismatch   = xsdbool( book-Author <> master-Author ).
           finding-language_mismatch = xsdbool( book-Language <> master-Language ).
         CATCH cx_sy_itab_line_not_found.
-          finding-name_mismatch = abap_true.
-          finding-author_mismatch = abap_true.
+          finding-name_mismatch     = abap_true.
+          finding-author_mismatch   = abap_true.
           finding-language_mismatch = abap_true.
       ENDTRY.
 
-      IF finding-name_mismatch = abap_true
-         OR finding-author_mismatch = abap_true
+      IF    finding-name_mismatch     = abap_true
+         OR finding-author_mismatch   = abap_true
          OR finding-language_mismatch = abap_true.
         INSERT finding INTO TABLE invalid_books.
       ENDIF.

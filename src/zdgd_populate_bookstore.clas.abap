@@ -58,7 +58,10 @@ CLASS zdgd_populate_bookstore DEFINITION
 ENDCLASS.
 
 
-CLASS zdgd_populate_bookstore IMPLEMENTATION.
+
+CLASS ZDGD_POPULATE_BOOKSTORE IMPLEMENTATION.
+
+
   METHOD if_oo_adt_classrun~main.
     select_master_books( IMPORTING books             = DATA(books)
                                    shortage_language = DATA(shortage_language) ).
@@ -146,6 +149,7 @@ CLASS zdgd_populate_bookstore IMPLEMENTATION.
     out->write( |{ lines( create_mapped-bookstore ) } bookstores and { lines( create_mapped-book ) } books created.| ).
   ENDMETHOD.
 
+
   METHOD select_master_books.
     CLEAR: books,
            shortage_language.
@@ -166,6 +170,7 @@ CLASS zdgd_populate_bookstore IMPLEMENTATION.
       APPEND LINES OF language_books TO books.
     ENDLOOP.
   ENDMETHOD.
+
 
   METHOD build_payload.
     CLEAR: bookstore_create,
@@ -237,6 +242,7 @@ CLASS zdgd_populate_bookstore IMPLEMENTATION.
     ENDDO.
   ENDMETHOD.
 
+
   METHOD create_entities.
     MODIFY ENTITIES OF zdgd_i_bookstore
            ENTITY Bookstore
@@ -247,11 +253,13 @@ CLASS zdgd_populate_bookstore IMPLEMENTATION.
            REPORTED reported.
   ENDMETHOD.
 
+
   METHOD is_creation_complete.
     result = xsdbool(     failed                    IS INITIAL
                       AND lines( mapped-bookstore )  = bookstore_count
                       AND lines( mapped-book )       = bookstore_count * book_count ).
   ENDMETHOD.
+
 
   METHOD delete_existing.
     CLEAR: failed,
@@ -276,6 +284,7 @@ CLASS zdgd_populate_bookstore IMPLEMENTATION.
     ENDIF.
   ENDMETHOD.
 
+
   METHOD has_existing_entries.
     result = abap_true.
     " TODO: variable is assigned but never used (ABAP cleaner)
@@ -296,4 +305,3 @@ CLASS zdgd_populate_bookstore IMPLEMENTATION.
     result = xsdbool( sy-subrc = 0 ).
   ENDMETHOD.
 ENDCLASS.
-

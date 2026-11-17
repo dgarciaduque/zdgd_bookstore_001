@@ -23,9 +23,15 @@ CLASS zdgd_book_md_exception DEFINITION PUBLIC INHERITING FROM cx_static_check F
                 book_name TYPE zdgd_bookname                    OPTIONAL
                 author    TYPE zdgd_bookauthor                  OPTIONAL
                 !language TYPE spras                            OPTIONAL.
+protected section.
+private section.
 ENDCLASS.
 
-CLASS zdgd_book_md_exception IMPLEMENTATION.
+
+
+CLASS ZDGD_BOOK_MD_EXCEPTION IMPLEMENTATION.
+
+
   METHOD constructor ##ADT_SUPPRESS_GENERATION.
     super->constructor( previous = previous ).
     CLEAR me->textid.

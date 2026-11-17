@@ -11,7 +11,9 @@ ENDCLASS.
 
 
 
-CLASS zdgd_test IMPLEMENTATION.
+CLASS ZDGD_TEST IMPLEMENTATION.
+
+
   METHOD if_oo_adt_classrun~main.
     SELECT FROM zdgd_i_bookstore
       FIELDS *
@@ -20,4 +22,3 @@ CLASS zdgd_test IMPLEMENTATION.
     out->write( bookstores ).
   ENDMETHOD.
 ENDCLASS.
-

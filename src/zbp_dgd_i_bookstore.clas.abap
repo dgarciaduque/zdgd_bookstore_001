@@ -1,5 +1,9 @@
 CLASS zbp_dgd_i_bookstore DEFINITION PUBLIC ABSTRACT FINAL FOR BEHAVIOR OF zdgd_i_bookstore.
+protected section.
+private section.
 ENDCLASS.
 
-CLASS zbp_dgd_i_bookstore IMPLEMENTATION.
+
+
+CLASS ZBP_DGD_I_BOOKSTORE IMPLEMENTATION.
 ENDCLASS.
