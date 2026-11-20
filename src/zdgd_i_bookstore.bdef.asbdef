@@ -46,9 +46,11 @@ authorization dependent by _Bookstore
   field ( mandatory : create, readonly : update ) Author;
   field ( mandatory : create, readonly : update ) Language;
 
+  //Deep parameters cannot be used in Fiori Elements UIs
   action ( precheck ) TransferBookToBookstores deep parameter ZDGD_D_TransferBookParam;
-
   action ( precheck ) TransferBook parameter ZDGD_D_TransferSingleBookParam;
+
+  side effects { action TransferBook affects field UnitsInStock; }
 
   validation exists_in_master_data on save { create; }
   validation no_duplicates_in_bookstore on save { create; }

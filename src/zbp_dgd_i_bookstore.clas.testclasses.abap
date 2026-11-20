@@ -26,13 +26,13 @@ CLASS ltcl_book_numbering DEFINITION FINAL
     METHODS teardown.
 
     METHODS resolves_semantic_key          FOR TESTING.
-    METHODS precheck_request_duplicates FOR TESTING.
-    METHODS precheck_persisted_duplicate FOR TESTING.
-    METHODS precheck_missing_master FOR TESTING.
-    METHODS precheck_active_ignored FOR TESTING.
-    METHODS helper_request_duplicates FOR TESTING.
-    METHODS helper_parent_refs_distinct FOR TESTING.
-    METHODS helper_empty_request FOR TESTING.
+    METHODS precheck_request_duplicates    FOR TESTING.
+    METHODS precheck_persisted_duplicate   FOR TESTING.
+    METHODS precheck_missing_master        FOR TESTING.
+    METHODS precheck_active_ignored        FOR TESTING.
+    METHODS helper_request_duplicates      FOR TESTING.
+    METHODS helper_parent_refs_distinct    FOR TESTING.
+    METHODS helper_empty_request           FOR TESTING.
     METHODS preserves_matching_id          FOR TESTING.
     METHODS maps_supplied_id_from_master   FOR TESTING.
     METHODS rejects_missing_master         FOR TESTING.
@@ -50,33 +50,37 @@ CLASS ltcl_book_numbering DEFINITION FINAL
     METHODS empty_requests                 FOR TESTING.
     METHODS empty_targets                  FOR TESTING.
 
-    METHODS defaults_aggregate_stock FOR TESTING.
-    METHODS defaults_threshold_boundary FOR TESTING.
-    METHODS defaults_tie_by_book_id FOR TESTING.
-    METHODS defaults_empty_inventory FOR TESTING.
-    METHODS defaults_no_candidate FOR TESTING.
-    METHODS defaults_large_total FOR TESTING.
-    METHODS defaults_empty_requests FOR TESTING.
-    METHODS restock_updates_only_eligible FOR TESTING.
+    METHODS defaults_aggregate_stock       FOR TESTING.
+    METHODS defaults_threshold_boundary    FOR TESTING.
+    METHODS defaults_tie_by_book_id        FOR TESTING.
+    METHODS defaults_empty_inventory       FOR TESTING.
+    METHODS defaults_no_candidate          FOR TESTING.
+    METHODS defaults_large_total           FOR TESTING.
+    METHODS defaults_empty_requests        FOR TESTING.
+    METHODS restock_updates_only_eligible  FOR TESTING.
     METHODS restock_rejects_missing_master FOR TESTING.
-    METHODS restock_rejects_initial_book FOR TESTING.
+    METHODS restock_rejects_initial_book   FOR TESTING.
     METHODS restock_rejects_invalid_target FOR TESTING.
-    METHODS restock_no_assignments FOR TESTING.
-    METHODS restock_zero_threshold FOR TESTING.
-    METHODS restock_empty_requests FOR TESTING.
-    METHODS restock_authorization FOR TESTING.
-    METHODS restock_precheck_mixed FOR TESTING.
-    METHODS restock_precheck_draft_master FOR TESTING.
+    METHODS restock_no_assignments         FOR TESTING.
+    METHODS restock_zero_threshold         FOR TESTING.
+    METHODS restock_empty_requests         FOR TESTING.
+    METHODS restock_authorization          FOR TESTING.
+    METHODS restock_precheck_mixed         FOR TESTING.
+    METHODS restock_precheck_draft_master  FOR TESTING.
     METHODS restock_precheck_blocks_update FOR TESTING.
-    METHODS transfer_public_eml FOR TESTING.
-    METHODS transfer_flat_public_eml FOR TESTING.
-    METHODS transfer_late_rollback FOR TESTING.
+    METHODS transfer_public_eml            FOR TESTING.
+    METHODS transfer_flat_public_eml       FOR TESTING.
+    METHODS transfer_late_rollback         FOR TESTING.
+    METHODS transfer_commit_success        FOR TESTING.
+
     METHODS given_public_transfer
       RETURNING VALUE(result) TYPE lif_book_stock_handling=>transfer_requests.
+
     METHODS execute_restock
-      IMPORTING book_id TYPE sysuuid_x16 DEFAULT master_id
-                threshold TYPE int1 DEFAULT 3
-                target TYPE int1 DEFAULT 10.
+      IMPORTING book_id    TYPE sysuuid_x16 DEFAULT master_id
+                !threshold TYPE int1        DEFAULT 3
+                !target    TYPE int1        DEFAULT 10.
+
     METHODS assert_restock_defaults
       IMPORTING expected_book_id TYPE sysuuid_x16 OPTIONAL.
 
@@ -105,9 +109,9 @@ CLASS ltcl_book_numbering DEFINITION FINAL
                 is_draft     TYPE abp_behv_flag DEFAULT if_abap_behv=>mk-on.
 
     METHODS assert_numbering_failure
-      IMPORTING !cid         TYPE abp_behv_cid DEFAULT 'BOOK'
-                book_id      TYPE sysuuid_x16 OPTIONAL
-                is_draft     TYPE abp_behv_flag DEFAULT if_abap_behv=>mk-on.
+      IMPORTING !cid     TYPE abp_behv_cid  DEFAULT 'BOOK'
+                book_id  TYPE sysuuid_x16   OPTIONAL
+                is_draft TYPE abp_behv_flag DEFAULT if_abap_behv=>mk-on.
 ENDCLASS.
 
 CLASS ltcl_book_numbering IMPLEMENTATION.
@@ -228,6 +232,36 @@ CLASS ltcl_book_numbering IMPLEMENTATION.
       BookstoreID = store_id BookID = master_id ]-UnitsInStock ).
     cl_abap_unit_assert=>assert_equals( exp = 8 act = restored_books[ KEY entity
       BookstoreID = other_id BookID = master_id ]-UnitsInStock ).
+  ENDMETHOD.
+
+  METHOD transfer_commit_success.
+    DATA action_requests TYPE lif_book_stock_handling=>transfer_requests.
+    action_requests = given_public_transfer( ).
+
+    MODIFY ENTITIES OF zdgd_i_bookstore
+      ENTITY Book EXECUTE TransferBookToBookstores FROM action_requests
+      FAILED failed REPORTED reported.
+    cl_abap_unit_assert=>assert_initial( failed ).
+
+    COMMIT ENTITIES RESPONSE OF zdgd_i_bookstore
+      FAILED DATA(commit_failed)
+      REPORTED DATA(commit_reported).
+    cl_abap_unit_assert=>assert_initial( commit_failed ).
+
+    READ ENTITIES OF zdgd_i_bookstore IN LOCAL MODE
+      ENTITY Book FIELDS ( UnitsInStock )
+      WITH VALUE #( ( BookstoreID = store_id BookID = master_id %is_draft = if_abap_behv=>mk-off )
+                    ( BookstoreID = other_id BookID = master_id %is_draft = if_abap_behv=>mk-off )
+                    ( BookstoreID = master_id BookID = master_id %is_draft = if_abap_behv=>mk-off ) )
+      RESULT DATA(committed_books)
+      FAILED DATA(read_failed).
+    cl_abap_unit_assert=>assert_initial( read_failed ).
+    cl_abap_unit_assert=>assert_equals( exp = 8 act = committed_books[ KEY entity
+      BookstoreID = store_id BookID = master_id ]-UnitsInStock ).
+    cl_abap_unit_assert=>assert_equals( exp = 5 act = committed_books[ KEY entity
+      BookstoreID = other_id BookID = master_id ]-UnitsInStock ).
+    cl_abap_unit_assert=>assert_equals( exp = 5 act = committed_books[ KEY entity
+      BookstoreID = master_id BookID = master_id ]-UnitsInStock ).
   ENDMETHOD.
 
   METHOD class_setup.
@@ -1933,3 +1967,4 @@ CLASS ltcl_book_master_data IMPLEMENTATION.
              NEXT count = count + 1 ).
   ENDMETHOD.
 ENDCLASS.
+
